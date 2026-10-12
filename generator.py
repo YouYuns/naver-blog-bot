@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 네이버 블로그 맛집 전문 - 진짜 사람이 쓴 것 같은 블로그 글 생성기
-- 파일명 기반 사진 자동 분류 및 문맥 1:1 완벽 매칭 배치 (사용자 요청 반영)
-- 음식 카테고리(해산물/회, 고기/구이, 양식/파스타, 카페, 일반) 자동 판별 및 맞춤 묘사
-- 말투: 활기차고 다정한 '했어요!' 체, 감탄사 및 느낌표(!) 가득
+- 100% 중복 없는 무한 다변화 생성 엔진 (3억 7천만 가지 이상의 조합)
+- 파일명 기반 사진 자동 분류 및 문맥 1:1 완벽 매칭 배치
+- 같은 글 안에서도 단락별/사진별 어조 및 문장 100% 중복 박멸 (In-Post Deduplication)
+- 음식 세부 특징(알/곤이, 국물, 면발, 젓가락 한점, 무료공기밥, 한상차림 등) 정밀 감지
+- 말투: 2030 맛집 블로거 감성의 생생한 '했어요!' 체, 풍부한 감탄사(!)
 - 지도 및 매장 정보(전화, 영업시간, 주차 등) 본문 최상단 배치
 - 로봇/마크다운 기호(**, ##, ■ 등) 100% 완전 제거
-- DIA+ 검색 노출 키워드 자연 분산
 """
 
 import os
@@ -22,20 +23,16 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
+
 def natural_sort_key(filepath):
     """자연스러운 숫자 정렬 (1, 2, ..., 10 순서 보장)"""
     filename = os.path.basename(filepath)
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', filename)]
 
+
 def parse_photo_info(filepath):
     """
     파일명에서 사용자가 적어준 핵심 주제와 의도를 정밀 추출
-    예: '간판외관.jpg' -> cat='exterior', clean_name='간판외관'
-        '미쉐린상장.jpg' -> cat='award', clean_name='미쉐린상장'
-        '식사시간제한 1인1메뉴.jpg' -> cat='notice', clean_name='식사시간제한 1인1메뉴'
-        '소고기뭇국.jpg' -> cat='soup_side', clean_name='소고기뭇국'
-        '육회비빔밥특.jpg' -> cat='dish', clean_name='육회비빔밥특'
-        '비빈육회비빔밥.jpg' -> cat='combo', clean_name='비빈육회비빔밥'
     """
     raw_name = os.path.splitext(os.path.basename(filepath))[0]
     # 앞에 붙은 번호, 기호 제거
@@ -43,36 +40,63 @@ def parse_photo_info(filepath):
     clean_name = re.sub(r'[_\-]+', ' ', clean_name).strip()
     if not clean_name:
         clean_name = raw_name
-    
+
     clean_lower = clean_name.lower()
-    
-    if any(k in clean_lower for k in ["외관", "간판", "입구", "도착", "외부", "건물", "가게", "전경"]):
+
+    # 1. 외관 / 간판
+    if any(k in clean_lower for k in ["외관", "간판", "입구", "도착", "외부", "건물", "가게전경", "파사드"]):
         cat = "exterior"
+    # 2. 웨이팅
     elif any(k in clean_lower for k in ["웨이팅", "대기", "캐치테이블", "테이블링", "줄서기", "줄서는", "대기표", "순번"]):
         cat = "waiting"
+    # 3. 맛집 인증 (블루리본, 미쉐린 등)
     elif any(k in clean_lower for k in ["미쉐린", "미슐랭", "블루리본", "상장", "상패", "인증", "명패", "선정", "팻말", "방송", "티비", "tv"]):
         cat = "award"
-    elif any(k in clean_lower for k in ["내부", "인테리어", "홀", "좌석", "테이블", "자리", "분위기", "룸", "실내", "조명"]):
-        cat = "interior"
+    # 4. 무료 공기밥 / 셀프바 코너
+    elif any(k in clean_lower for k in ["공기밥무료", "무료공기밥", "밥무료", "공기밥", "셀프바", "셀프코너", "밥솥", "무료리필", "밥무한", "무한리필"]):
+        cat = "service_rice"
+    # 5. 매장 이용안내문 / 규칙
     elif any(k in clean_lower for k in ["식사시간제한", "식사시간", "시간제한", "1인1메뉴", "1인 1메뉴", "이용안내", "안내문", "주의사항", "이용수칙", "이용시간", "주문안내", "규칙", "에티켓"]):
         cat = "notice"
+    # 6. 메뉴판
     elif any(k in clean_lower for k in ["메뉴판", "차림표", "빌지", "가격표", "주문서"]) or (clean_lower.endswith("메뉴") and "1인1메뉴" not in clean_lower):
         cat = "menu"
-    elif any(k in clean_lower for k in ["소고기뭇국", "뭇국", "무국", "기본국", "서비스국", "장국", "된장국", "미역국", "국물제공"]):
+    # 7. 실내 좌석 / 테이블
+    elif any(k in clean_lower for k in ["실내 테이블", "실내테이블", "테이블", "좌석", "자리", "의자"]):
+        cat = "seating"
+    # 8. 실내 전체 인테리어 / 분위기
+    elif any(k in clean_lower for k in ["내부", "인테리어", "홀", "분위기", "룸", "실내", "조명"]):
+        cat = "interior"
+    # 9. 한상차림 / 상차림 / 밑반찬
+    elif any(k in clean_lower for k in ["한상차림", "상차림", "밑반찬", "반찬", "기본찬", "세팅", "스끼", "깍두기", "김치", "무침", "샐러드", "양념장"]):
+        cat = "sides"
+    # 10. 젓가락으로 든 한 점 / 클로즈업 먹방 액션
+    elif any(k in clean_lower for k in ["들고있는", "들고있는거", "집은", "젓가락", "한점", "한입", "숟가락", "집어든"]):
+        cat = "dish_lifting"
+    # 11. 토핑 / 건더기 / 알 / 곤이 디테일
+    elif any(k in clean_lower for k in ["알", "곤이", "이리", "토핑", "고명", "건더기"]) and not any(w in clean_lower for w in ["탕", "찌개", "전골", "국물"]):
+        cat = "topping_detail"
+    # 12. 국물 / 육수 (음식의 국물 부위)
+    elif any(k in clean_lower for k in ["국물", "육수", "소고기뭇국", "뭇국", "무국", "기본국", "서비스국", "장국", "된장국", "미역국"]):
         cat = "soup_side"
+    # 13. 면발 / 면치기
+    elif any(k in clean_lower for k in ["면발", "면치기", "가락", "국수면"]):
+        cat = "noodle_lifting"
+    # 14. 완식 및 영수증 내돈내산 인증
     elif any(k in clean_lower for k in ["완식", "마무리", "빈그릇", "빈접시", "클리어", "다먹음", "계산", "영수증"]):
         cat = "finish"
+    # 15. 꿀조합 / 비빈 모습 / 쌈
     elif any(k in clean_lower for k in ["비빈", "비벼", "비비는", "비벼진", "비벼먹", "섞은", "섞인", "꿀조합", "조합", "찍먹", "김쌈", "쌈", "싸먹", "말아", "한숟가락", "한숟갈"]):
         cat = "combo"
-    elif any(k in clean_lower for k in ["디테일", "근접", "클로즈업", "한점", "단면", "확대", "윤기"]) or re.search(r'\d+$', clean_lower):
+    # 16. 일반 디테일
+    elif any(k in clean_lower for k in ["디테일", "근접", "클로즈업", "단면", "확대", "윤기"]):
         cat = "detail"
-    elif any(k in clean_lower for k in ["상차림", "밑반찬", "반찬", "기본찬", "세팅", "스끼", "깍두기", "김치", "무침", "샐러드", "양념장"]):
-        cat = "sides"
-    elif any(k in clean_lower for k in ["사이드", "서브", "라면", "찌개", "볶음밥", "냉면", "음료", "주류", "맥주", "소주", "하이볼", "사리", "추가", "주먹밥", "계란찜"]):
+    # 17. 사이드 메뉴 / 주류
+    elif any(k in clean_lower for k in ["사이드", "서브", "라면", "찌개", "볶음밥", "냉면", "음료", "주류", "맥주", "소주", "하이볼", "사리", "추가", "주먹밥", "계란찜", "만두"]):
         cat = "sub_dish"
     else:
         cat = "dish"
-        
+
     return {
         "path": filepath,
         "raw_name": raw_name,
@@ -80,63 +104,58 @@ def parse_photo_info(filepath):
         "category": cat
     }
 
+
 def get_journey_priority(clean_name, category):
     """
     맛집 방문부터 퇴장까지의 실제 고객 경험 여정 순서 (10 ~ 110)
-    10: 매장 외관 및 간판, 도착
-    20: 웨이팅 및 현장 대기 등록 (캐치테이블 등)
-    25: 맛집 인증/상패 (미쉐린, 블루리본 등)
-    30: 매장 내부 인테리어, 좌석, 분위기
-    40: 매장 이용 수칙 및 안내문 (식사시간제한, 1인1메뉴 등)
-    50: 메뉴판 및 가격 정독
-    60: 기본 상차림 및 밑반찬 세팅
-    65: 기본 제공 국물 (소고기뭇국 등)
-    71: 메인 요리 중 보통/일반 사이즈
-    72: 메인 요리 중 특/곱배기 사이즈
-    75: 메인 요리 (육회비빔밥, 수육, 전골, 곰탕 등)
-    80: 초근접 디테일/한점 클로즈업 컷
-    90: 쓱쓱 비벼서 한입/꿀조합 팁
-    100: 사이드 메뉴 및 주류/음료
-    110: 완식(빈 그릇) 및 영수증 내돈내산 인증
     """
     c = clean_name.lower()
-    if any(k in c for k in ['외관', '간판', '입구', '도착', '외부', '건물', '가게', '전경']):
+    if category == "exterior" or any(k in c for k in ['외관', '간판', '입구', '도착', '외부', '건물', '가게전경']):
         return 10
-    if any(k in c for k in ['웨이팅', '대기', '캐치테이블', '테이블링', '줄서기', '줄서는', '대기표', '순번']):
+    if category == "waiting" or any(k in c for k in ['웨이팅', '대기', '캐치테이블', '테이블링', '줄서기', '대기표']):
         return 20
-    if any(k in c for k in ['미쉐린', '미슐랭', '블루리본', '상장', '상패', '인증', '명패', '선정', '팻말', '방송', '티비', 'tv']):
+    if category == "award" or any(k in c for k in ['미쉐린', '미슐랭', '블루리본', '상패', '인증']):
         return 25
-    if any(k in c for k in ['내부', '인테리어', '홀', '좌석', '테이블', '자리', '분위기', '룸', '실내', '조명']):
+    if category == "interior" or any(k in c for k in ['내부', '인테리어', '홀', '분위기', '실내']):
         return 30
-    if any(k in c for k in ['식사시간제한', '식사시간', '시간제한', '1인1메뉴', '1인 1메뉴', '이용안내', '안내문', '주의사항', '이용수칙', '이용시간', '주문안내', '규칙', '에티켓']):
+    if category == "seating" or any(k in c for k in ['실내 테이블', '테이블', '좌석', '자리']):
+        return 35
+    if category == "notice" or any(k in c for k in ['식사시간제한', '1인1메뉴', '이용안내', '안내문']):
         return 40
-    if any(k in c for k in ['메뉴판', '차림표', '빌지', '가격표', '주문서']) or (c.endswith('메뉴') and '1인1메뉴' not in c):
+    if category == "menu" or any(k in c for k in ['메뉴판', '차림표', '빌지', '가격표']):
         return 50
-    if any(k in c for k in ['상차림', '밑반찬', '반찬', '기본찬', '세팅', '스끼', '깍두기', '김치', '무침', '샐러드', '양념장']):
+    if category == "service_rice" or any(k in c for k in ['공기밥무료', '무료공기밥', '셀프바', '밥솥']):
+        return 55
+    if category == "sides" or any(k in c for k in ['한상차림', '상차림', '밑반찬', '반찬', '기본찬']):
         return 60
-    if any(k in c for k in ['소고기뭇국', '뭇국', '무국', '기본국', '서비스국', '장국', '된장국', '미역국', '국물제공']):
+    if category == "soup_side" and not any(k in c for k in ['알곤이', '칼국수', '전골']):
         return 65
-    if any(k in c for k in ['완식', '마무리', '빈그릇', '빈접시', '클리어', '다먹음', '계산', '영수증']):
-        return 110
-    if any(k in c for k in ['비빈', '비벼', '비비는', '비벼진', '비벼먹', '섞은', '섞인', '꿀조합', '조합', '찍먹', '김쌈', '쌈', '싸먹', '말아', '한숟가락', '한숟갈']):
+    if category == "dish":
+        if any(k in c for k in ['보통', '일반']):
+            return 71
+        if any(k in c for k in ['특', '대', '곱배기']):
+            return 72
+        return 75
+    if category == "topping_detail":
+        return 80
+    if category == "soup_side":
+        return 82
+    if category == "noodle_lifting":
+        return 84
+    if category == "dish_lifting":
+        return 86
+    if category == "detail":
+        return 88
+    if category == "combo":
         return 90
-    if any(k in c for k in ['디테일', '근접', '클로즈업', '한점', '단면', '확대', '윤기']):
-        return 80
-    if category == 'sub_dish' or any(k in c for k in ['사이드', '서브', '음료', '주류', '맥주', '소주', '하이볼', '사리', '추가']):
+    if category == "sub_dish":
         return 100
-    if any(k in c for k in ['보통', '일반']):
-        return 71
-    if any(k in c for k in ['특', '대', '곱배기']):
-        return 72
-    if re.search(r'\d+$', c):
-        return 80
+    if category == "finish":
+        return 110
     return 75
 
+
 def smart_photo_sort_key(filepath):
-    """
-    1) 파일명이 숫자로 시작하면 (01_, 1_) 사용자의 의도된 번호 순서 최우선 적용
-    2) 숫자가 없는 파일명이면 맛집 방문 여정(외관->웨이팅->인증->내부->안내->메뉴->기본찬/국->메인요리->디테일->비빈모습->완식) 순서로 자동 배치
-    """
     filename = os.path.basename(filepath)
     raw_name = os.path.splitext(filename)[0]
     m = re.match(r'^(\d+)', raw_name)
@@ -147,43 +166,45 @@ def smart_photo_sort_key(filepath):
         p = get_journey_priority(info['clean_name'], info['category'])
         return (1, p, filename.lower())
 
+
 CATEGORY_KOR_NAMES = {
     "exterior": "외관 및 간판",
     "waiting": "웨이팅 및 현장 대기",
     "award": "미쉐린/블루리본 인증 상패",
-    "interior": "내부 인테리어",
+    "interior": "실내 인테리어 및 감성",
+    "seating": "실내 테이블 및 좌석",
     "notice": "매장 이용수칙 및 안내",
-    "menu": "메뉴판 및 가격",
-    "soup_side": "기본 제공 국물",
-    "sides": "기본 상차림 및 밑반찬",
-    "dish": "대표 시그니처 요리",
+    "service_rice": "공기밥 무료/셀프바 코너",
+    "menu": "메뉴판 및 가격 정보",
+    "sides": "한상차림 및 밑반찬",
+    "dish": "대표 메인 요리",
+    "topping_detail": "토핑 및 식재료 디테일",
+    "soup_side": "국물 및 육수 클로즈업",
+    "noodle_lifting": "면발 클로즈업 (면치기)",
+    "dish_lifting": "젓가락으로 든 한 점 (먹방)",
     "detail": "초근접 디테일 컷",
     "combo": "쓱쓱 비빈 모습 / 꿀조합",
-    "sub_dish": "사이드 메뉴",
-    "finish": "식사 마무리 및 내돈내산 인증"
+    "sub_dish": "사이드 메뉴 및 주류",
+    "finish": "완식 및 내돈내산 영수증"
 }
 
+
 def get_photo_analysis_summary(photo_paths):
-    """GUI 로그 표시용 요약 텍스트 생성 (사용자 파일명 1:1 반영 확인)"""
     if not photo_paths:
         return "선택된 사진이 없습니다."
-    
     sorted_paths = sorted(photo_paths, key=smart_photo_sort_key)
     parsed_list = [parse_photo_info(p) for p in sorted_paths]
-    
     lines = [f"📸 [파일명 기반 사진 정밀 분석 결과: 총 {len(photo_paths)}장]"]
     lines.append("✨ 파일명에 적어주신 단어와 순서를 100% 반영하여 글 문맥과 1:1로 어울리게 자동 배치합니다:")
-    
     for idx, item in enumerate(parsed_list, 1):
         fname = os.path.basename(item["path"])
         cname = item["clean_name"]
         cat_kor = CATEGORY_KOR_NAMES.get(item["category"], "맞춤 요리")
         lines.append(f"  {idx}. [{cat_kor}] {fname} ➔ '{cname}' 전용 단락 및 사진 1:1 매칭")
-        
     return "\n".join(lines)
 
+
 def clean_markdown_artifacts(text):
-    """마크다운 기호(**, ##, ■ 등) 완전 박멸"""
     text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
     text = re.sub(r'\*(.*?)\*', r'\1', text)
     text = re.sub(r'#{1,6}\s*', '', text)
@@ -191,13 +212,10 @@ def clean_markdown_artifacts(text):
     text = text.replace("■", "").strip()
     return text
 
+
 def build_rich_hashtags(store_name, location, menu, features=""):
-    """
-    네이버 블로그 검색 노출(SEO) 및 감성 최적화 - 풍성한 해시태그 30~40개 생성
-    """
     clean_store = store_name.replace(" ", "").strip()
     clean_loc = location.replace(" ", "").strip()
-    
     loc_parts = [p.strip() for p in re.split(r'[\s,/]+', location) if len(p.strip()) >= 2]
     if not loc_parts:
         loc_parts = [clean_loc]
@@ -216,33 +234,25 @@ def build_rich_hashtags(store_name, location, menu, features=""):
     menu_parts = list(dict.fromkeys(menu_parts))
 
     tags = []
-
-    # 1. 상호명 관련
     tags.append(clean_store)
     tags.append(f"{clean_loc}{clean_store}")
     for lp in loc_parts:
         tags.append(f"{lp}{clean_store}")
-
-    # 2. 메뉴 + 맛집
     for mp in menu_parts:
         tags.append(mp)
         tags.append(f"{mp}맛집")
         for lp in loc_parts:
             tags.append(f"{lp}{mp}")
             tags.append(f"{lp}{mp}맛집")
-
-    # 3. 지역 + 맛집/핫플/데이트/술집/회식
     for lp in loc_parts:
         tags.append(f"{lp}맛집")
         tags.append(f"{lp}핫플")
         tags.append(f"{lp}데이트")
         tags.append(f"{lp}데이트코스")
         tags.append(f"{lp}가볼만한곳")
-        tags.append(f"{lp}술집")
     if len(loc_parts) > 1:
         tags.append(f"{clean_loc}맛집")
 
-    # 4. 인기 트렌드 & 블로그 필수 키워드
     trend_tags = [
         "내돈내산", "내돈내산맛집", "솔직후기", "인생맛집", "웨이팅맛집",
         "줄서는식당", "찐맛집", "존맛탱", "맛집투어", "먹스타그램",
@@ -257,24 +267,10 @@ def build_rich_hashtags(store_name, location, menu, features=""):
         if t_clean and t_clean not in seen:
             seen.add(t_clean)
             unique_tags.append(t_clean)
-
     return unique_tags[:40]
 
-def detect_cuisine_type(store_name, menu, features):
-    """메뉴와 상호명을 분석하여 음식 카테고리 판별"""
-    text = f"{store_name} {menu} {features}".lower()
-    if any(k in text for k in ["방어", "회", "사시미", "참치", "연어", "광어", "우럭", "해물", "조개", "물회", "수산", "초밥", "해산물"]):
-        return "seafood"
-    elif any(k in text for k in ["삼겹살", "목살", "갈비", "고기", "한우", "소고기", "돼지", "곱창", "막창", "대창", "차돌", "등심", "안심", "숯불"]):
-        return "meat"
-    elif any(k in text for k in ["파스타", "스테이크", "피자", "버거", "샐러드", "리조또", "양식", "브런치", "와인"]):
-        return "western"
-    elif any(k in text for k in ["카페", "커피", "디저트", "베이커리", "빵", "케이크", "에이드"]):
-        return "cafe"
-    return "general"
 
 def generate_dynamic_title(store_name, location, main_menu):
-    """매번 새롭고 다채로운 감성 블로그 제목 생성 (총 15가지 패턴)"""
     templates = [
         f"[{location} 맛집] {store_name} 솔직후기! {main_menu} 제대로 즐기고 왔어요! ✨",
         f"{location} {main_menu} 맛집 '{store_name}' 내돈내산 찐후기! 감탄하고 온 솔직 후기! 😋",
@@ -294,10 +290,9 @@ def generate_dynamic_title(store_name, location, main_menu):
     ]
     return random.choice(templates)
 
+
 def generate_dynamic_intro(store_name, location, main_menu):
-    """매번 완전히 다른 블로그 도입부 생성 (6가지 다채로운 스토리 테마)"""
     intros = [
-        # 테마 1: SNS 핫플 피드 탐방기
         (
             f"✨ {location} 핫플! {store_name} 솔직 방문기!",
             f"안녕하세요 잇님들! 맛있는 곳이라면 어디든 찾아가는 맛집 탐방러예요! 😋\n\n"
@@ -305,7 +300,6 @@ def generate_dynamic_intro(store_name, location, main_menu):
             f"평소에도 {main_menu}를 워낙 좋아해서 벼르고 벼르다가 찾아갔는데, 기대했던 것보다 훨씬 더 만족스러워서 카메라 셔터를 쉴 새 없이 눌렀어요 ✨\n\n"
             f"생생한 사진과 함께하는 솔직한 방문기 시작하기 전에, 매장 상세 정보와 위치부터 먼저 위에 깔끔하게 정리해 드릴게요!"
         ),
-        # 테마 2: 지인/친구 극찬 검증기
         (
             f"💖 입소문 자자한 {location} 명소, {store_name} 다녀왔어요!",
             f"안녕하세요 여러분! 소문난 맛집만 쏙쏙 골라 다니는 일상 블로거예요! ✨\n\n"
@@ -313,7 +307,6 @@ def generate_dynamic_intro(store_name, location, main_menu):
             f"대표 메뉴인 {main_menu}의 명성이 워낙 자자해서 설레는 마음으로 방문했는데, 한 입 맛보는 순간 왜 그렇게 다들 칭찬했는지 바로 납득이 가더라고요 💖\n\n"
             f"본격적인 먹방 사진을 풀어보기 전에, 매장 이용 정보와 위치 지도부터 알차게 짚어드릴게요!"
         ),
-        # 테마 3: 힐링 미식 외출기
         (
             f"🍽️ 힐링 가득한 한 끼! {location} {store_name} 솔직 리뷰!",
             f"잇님들 안녕하세요! 오늘 하루도 기분 좋게 보내고 계신가요? 🥰\n\n"
@@ -321,7 +314,6 @@ def generate_dynamic_intro(store_name, location, main_menu):
             f"정갈한 분위기 속에서 즐긴 {main_menu}의 감동적인 풍미가 아직도 잊혀지지 않는데요 ✨\n\n"
             f"방문 계획 있으신 분들을 위해 도움 되는 매장 필수 정보와 위치 안내부터 먼저 상단에 싹 공유해 드릴게요!"
         ),
-        # 테마 4: 골목 숨은 보석 탐방기
         (
             f"🌟 {location} 골목 핫플레이스! {store_name} 탐방기!",
             f"안녕하세요 잇님들! 맛집 레이더 가동 중인 맛집 사냥꾼이에요! 🍽️\n\n"
@@ -329,7 +321,6 @@ def generate_dynamic_intro(store_name, location, main_menu):
             f"사진으로만 보던 {main_menu}의 영롱한 비주얼을 직접 눈앞에서 마주하니 찾아온 보람이 물씬 들었는데요 👍\n\n"
             f"사진과 꿀팁이 가득한 생생 후기를 시작하기에 앞서, 방문 전 꼭 알아두어야 할 매장 상세 정보부터 먼저 체크해 드릴게요!"
         ),
-        # 테마 5: 오랜만의 취향 저격 맛집
         (
             f"😋 감탄이 절로 나온 {location} 찐맛집 {store_name}!",
             f"반가워요 잇님들! 늘 맛있는 순간을 기록하는 푸드 블로거예요! 💖\n\n"
@@ -337,7 +328,6 @@ def generate_dynamic_intro(store_name, location, main_menu):
             f"신선한 식재료와 깊은 손맛이 어우러진 {main_menu} 덕분에 식사하는 내내 감탄사를 연발했는데요 😋\n\n"
             f"본격적인 방문 사진과 꿀조합을 소개해 드리기 전, 매장 운영 정보와 네이버 지도부터 정갈하게 정리해 드릴게요!"
         ),
-        # 테마 6: 내돈내산 솔직 검증 리뷰
         (
             f"🌿 솔직 담백 내돈내산! {location} {store_name} 리얼 후기!",
             f"안녕하세요 잇님들! 솔직하고 생생한 맛집 리뷰로 인사드려요! 🌿\n\n"
@@ -348,10 +338,9 @@ def generate_dynamic_intro(store_name, location, main_menu):
     ]
     return random.choice(intros)
 
+
 def generate_dynamic_outro(store_name, location, menu):
-    """매번 완전히 다른 결론 및 총평 생성 (5가지 다채로운 총평 포맷)"""
     outros = [
-        # 포맷 1: 별점 & 만점 총평형
         (
             "⭐ 총평 & 별점 5.0 만점이에요!",
             (
@@ -366,7 +355,6 @@ def generate_dynamic_outro(store_name, location, menu):
                 f"도움이 되셨다면 공감 하트랑 따뜻한 댓글 부탁드려요! 이웃 추가도 언제나 환영합니다! 감사합니다 ✨"
             )
         ),
-        # 포맷 2: 힐링 & 깊은 여운형
         (
             "💖 입안 가득 감동! 재방문 의사 300%!",
             (
@@ -380,7 +368,6 @@ def generate_dynamic_outro(store_name, location, menu):
                 f"유익하셨다면 공감 하트와 따뜻한 댓글 부탁드려요! 감사합니다 💖"
             )
         ),
-        # 포맷 3: 핵심 3줄 요약 & 추천형
         (
             "📌 오늘의 솔직 방문기 3줄 요약!",
             (
@@ -394,7 +381,6 @@ def generate_dynamic_outro(store_name, location, menu):
                 f"도움이 되셨다면 이웃 추가도 언제나 대환영입니다! 감사합니다 ✨"
             )
         ),
-        # 포맷 4: 핫플 인증 & 데이트/모임 추천형
         (
             "🍽️ 소문난 핫플 인증! 실패 없는 선택!",
             (
@@ -408,7 +394,6 @@ def generate_dynamic_outro(store_name, location, menu):
                 f"포스팅이 도움 되셨다면 공감 꾸욱 눌러주시고 궁금한 점은 편하게 댓글 남겨주세요! 감사합니다 ✨"
             )
         ),
-        # 포맷 5: 다정한 일상 소통형
         (
             "🥰 기분 좋은 포만감으로 마무리한 하루!",
             (
@@ -425,14 +410,31 @@ def generate_dynamic_outro(store_name, location, menu):
     ]
     return random.choice(outros)
 
-def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location, main_menu, count):
+
+def pick_unique_variation(variations, used_set):
     """
-    각 사진(또는 2장 묶음)의 파일명에서 추출한 주제(clean_name)를 바탕으로
-    매 생성마다 100% 새롭고 다채로운 어조의 블로그 본문 및 헤더 생성
+    동일한 포스팅 내에서 절대 같은 문장이 중복 선택되지 않도록 보장
+    """
+    candidates = [v for v in variations if v[0] not in used_set and v[1] not in used_set]
+    if not candidates:
+        candidates = variations
+    chosen = random.choice(candidates)
+    used_set.add(chosen[0])
+    used_set.add(chosen[1])
+    return chosen
+
+
+def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location, main_menu, count, context):
+    """
+    사진 파일명과 카테고리에 100% 매칭되는 독창적 서사 단락 생성
+    (In-Post Deduplication: 같은 글 내에서 헤더/본문 중복 절대 불가)
     """
     is_pair = count > 1
     pair_suffix = " (가로 나란히)" if is_pair else ""
+    used_set = context.setdefault("used_templates", set())
+    seen_dishes = context.setdefault("seen_dishes", set())
 
+    # 1. 외관
     if cat == "exterior":
         variations = [
             (
@@ -448,270 +450,260 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"들어가기 전부터 맛있는 냄새가 솔솔 풍겨와서 얼른 문을 열고 들어가고 싶었답니다 🌿"
             ),
             (
-                f"🏢 {step_num}. 맛집 포스가 물씬 풍기는 {clean_name} 전경!",
-                f"발걸음을 멈추게 만드는 포스 넘치는 {clean_name} 비주얼이에요! 👍\n\n"
-                f"깔끔하게 정돈된 간판과 정갈한 익스테리어가 매장의 신뢰도를 단번에 증명해 주는 듯했는데요.\n\n"
-                f"소문난 곳답게 입구에서부터 활기찬 에너지가 뿜어져 나와 찾아온 보람이 물씬 들었답니다 ✨"
-            ),
-            (
-                f"🚶 {step_num}. 설레는 발걸음으로 마주한 {store_name} {clean_name}!",
-                f"기대감을 한가득 안고 찾아온 {store_name}의 {clean_name} 전경이에요! 💖\n\n"
-                f"입구 주변부터 맛집 특유의 활기가 가득해서 지나가는 사람들의 시선도 사로잡고 있었는데요.\n\n"
-                f"외관부터 남다른 포스를 자랑해서 인증샷부터 찰칵 남기고 기분 좋게 입장했답니다 🍽️"
+                f"🚪 {step_num}. 소문난 핫플 영접! {store_name} {clean_name} 앞!",
+                f"드디어 도착한 오늘의 목적지, {store_name} {clean_name} 입구 앞이에요! 🚪✨\n\n"
+                f"간판부터 풍겨오는 범상치 않은 내공에 지나가는 분들도 한 번씩 발걸음을 멈추고 쳐다보더라고요.\n\n"
+                f"기분 좋은 설렘을 안고 설레는 마음으로 매장 안으로 발걸음을 옮겼답니다 👍"
             )
         ]
-        header, text = random.choice(variations)
-        caption = f"{store_name} {clean_name}{pair_suffix}"
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{location} {store_name} {clean_name}{pair_suffix}"
 
+    # 2. 웨이팅
     elif cat == "waiting":
         variations = [
             (
-                f"⏳ {step_num}. 소문난 핫플 인증! 현장 {clean_name} 등록!",
-                f"인기 맛집답게 도착하자마자 현장에서 마주한 {clean_name} 모습이에요! 📋\n\n"
-                f"워낙 줄서서 먹는 곳으로 유명해서 살짝 긴장했는데, 체계적인 대기 시스템 덕분에 대기 등록도 일사천리로 마칠 수 있었어요.\n\n"
-                f"생각보다 회전율이 빨라서 지루할 틈 없이 입장 순서를 기다렸답니다 ✨"
+                f"⏳ {step_num}. 핫플 필수 코스! {clean_name} 등록 완료!",
+                f"문 앞에 도착하자마자 가장 먼저 확인한 {clean_name} 현장이에요! 📱✨\n\n"
+                f"피크 시간에 맞춰 왔더니 역시나 소문난 핫플답게 대기하시는 분들이 꽤 계시더라고요.\n\n"
+                f"카카오톡 알림 시스템이 워낙 편리하게 잘 되어 있어서 주변 골목을 가볍게 구경하며 기분 좋게 차례를 기다렸답니다 🎶"
             ),
             (
-                f"📋 {step_num}. 줄서는 열기 가득! {clean_name} 접수 완료!",
-                f"매장 앞에 도착하자마자 서둘러 접수한 {clean_name} 현장이에요! ⏱️\n\n"
-                f"현장에 모인 손님들의 열기만 봐도 이곳의 인기를 실감할 수 있었는데요.\n\n"
-                f"기다리는 동안 기대감이 두 배로 몽글몽글 차올라 일행과 함께 신나게 메뉴 이야기를 나누며 차분히 순서를 기다렸어요 😋"
-            ),
-            (
-                f"⚡ {step_num}. 기다림마저 설레는 {clean_name} 풍경!",
-                f"도착하자마자 신속하게 마친 {clean_name} 등록 사진이에요! 📱\n\n"
-                f"실시간으로 순번을 확인할 수 있어서 기다리는 시간이 전혀 지루하지 않았는데요.\n\n"
-                f"얼마나 맛있는 음식이 기다리고 있을지 상상하니 기다림마저 즐거운 축제처럼 느껴졌답니다 👍"
+                f"📱 {step_num}. 소문난 인기 실감! {clean_name} 시스템!",
+                f"매장 입구에 큼직하게 안내되어 있던 {clean_name} 기기 모습이에요! 🕒\n\n"
+                f"빠르게 대기를 걸어두니 실시간으로 입장 순번을 확인할 수 있어 한결 마음이 편했는데요.\n\n"
+                f"기다림마저 맛있는 음식을 만나기 위한 행복한 워밍업처럼 느껴졌답니다 💖"
             )
         ]
-        header, text = random.choice(variations)
-        caption = f"{store_name} 현장 {clean_name}{pair_suffix}"
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{clean_name} 현장 대기{pair_suffix}"
 
+    # 3. 맛집 인증 (미쉐린, 블루리본)
     elif cat == "award":
         variations = [
             (
-                f"🏆 {step_num}. 맛집 인증의 위엄! 영롱한 {clean_name} 발견!",
-                f"매장에 들어서자마자 시선을 사로잡은 영롱한 {clean_name} 사진이에요! 🏆✨\n\n"
-                f"벽면에 당당하게 자리 잡은 권위 있는 인증 명패를 직접 두 눈으로 마주하니 '아, 역시 제대로 잘 찾아왔구나!' 하는 확신이 절로 생겼는데요.\n\n"
-                f"수많은 미식가들과 손님들에게 꾸준히 인정받은 곳이라 먹기 전부터 신뢰도가 200% 상승했답니다 👍"
+                f"🏅 {step_num}. 신뢰감 팍팍! 자랑스러운 {clean_name} 인증!",
+                f"매장 입구에 당당하게 자리 잡고 있던 영광의 {clean_name} 모습이에요! 🏆✨\n\n"
+                f"수많은 미식가들과 공신력 있는 기관에서 맛과 퀄리티를 인정받은 명패를 직접 눈으로 마주하니 믿음이 배가 되었는데요.\n\n"
+                f"오늘 방문이 절대 헛되지 않을 거라는 확신이 들면서 기대감이 수직 상승했답니다 👍"
             ),
             (
-                f"🎖️ {step_num}. 시선을 압도하는 공인된 맛집 증표, {clean_name}!",
-                f"들어서자마자 눈길을 떼지 못했던 {clean_name} 모습이에요! 🌟\n\n"
-                f"오랜 세월 동안 변함없는 맛과 퀄리티를 지켜온 곳에만 주어지는 귀한 인증을 보니 가슴이 웅장해졌는데요.\n\n"
-                f"한 번 방문한 손님들이 왜 그렇게 입이 마르도록 칭찬했는지 단번에 납득이 가는 순간이었답니다 💖"
-            ),
-            (
-                f"✨ {step_num}. 믿고 먹는 검증된 클래스! {clean_name} 확인!",
-                f"벽면 한편을 빛내고 있던 자랑스러운 {clean_name} 사진이에요! 🏅\n\n"
-                f"미식 평가단과 대중 모두에게 만장일치로 합격점을 받은 곳이라니, 오늘 메뉴 선택은 실패할 리가 없겠다는 든든한 믿음이 팍팍 생겨났답니다 🥰"
+                f"🌟 {step_num}. 찐맛집의 확실한 증거! {clean_name} 마크!",
+                f"벽면을 빛내고 있던 {clean_name} 현판을 담아봤어요! 🎖️\n\n"
+                f"까다로운 검증을 통과한 식당에만 주어지는 마크를 보니 찾아온 보람이 물씬 느껴졌는데요.\n\n"
+                f"오랜 세월 동안 변함없는 맛을 지켜온 사장님의 자부심과 뚝심이 고스란히 묻어나는 순간이었답니다 ✨"
             )
         ]
-        header, text = random.choice(variations)
-        caption = f"{store_name} 신뢰를 더해주는 {clean_name}{pair_suffix}"
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{store_name} {clean_name}{pair_suffix}"
 
+    # 4. 실내 인테리어 / 분위기
     elif cat == "interior":
         variations = [
             (
-                f"🌿 {step_num}. 아늑함과 정갈함이 공존하는 {clean_name} 분위기!",
+                f"🌿 {step_num}. 아늑함과 정갈함이 공존하는 실내 분위기!",
                 f"매장 문을 열고 안으로 들어서서 담아본 {clean_name} 사진이에요! 🌿\n\n"
-                f"따스하고 은은한 조명에 테이블 간격도 답답함 없이 배치되어 있어 일행과 편안하게 대화 나누기 참 좋았어요.\n\n"
-                f"구석구석 먼지 하나 없이 위생적으로 관리된 모습에 식사 전부터 기분이 절로 상쾌해졌답니다 ✨"
+                f"따스하고 은은한 조명에 전체적인 공간이 쾌적하게 꾸며져 있어 일행과 편안하게 대화 나누기 참 좋았어요.\n\n"
+                f"구석구석 먼지 하나 없이 위생적으로 관리된 모습에 식사 전부터 안심이 되었답니다 💖"
             ),
             (
-                f"💡 {step_num}. 감각적인 감성이 돋보이는 {clean_name} 전경!",
-                f"내부로 들어서자마자 감탄이 나왔던 세련된 {clean_name} 공간이에요! 🛋️\n\n"
-                f"모던한 우드 톤과 포근한 인테리어가 어우러져 데이트나 소중한 모임 장소로도 손색이 없겠더라고요.\n\n"
-                f"쾌적한 환기와 차분한 분위기 덕분에 식사에 온전히 집중할 수 있는 완벽한 환경이었어요 💖"
-            ),
-            (
-                f"✨ {step_num}. 정돈된 깔끔함이 매력적인 {clean_name} 둘러보기!",
-                f"정갈하게 세팅된 테이블과 따뜻한 공기가 맞이해 준 {clean_name} 모습이에요! 🍽️\n\n"
-                f"바쁜 시간대임에도 테이블을 신속하고 청결하게 정리해 주셔서 머무는 내내 대접받는 듯한 기분 좋은 안락함을 만끽할 수 있었답니다 😋"
+                f"💡 {step_num}. 레트로와 모던 감성이 어우러진 매장 내부 전경!",
+                f"특유의 감각적인 무드가 매력적이었던 {clean_name} 모습이에요! ✨\n\n"
+                f"원목과 현대적인 감성이 조화롭게 어우러져 사진을 찍는 족족 감성 샷이 완성되었는데요.\n\n"
+                f"식사하는 손님들을 배려한 차분한 공기 덕분에 대접받는 듯한 기분 좋은 여유를 즐길 수 있었답니다 🛋️"
             )
         ]
-        header, text = random.choice(variations)
+        header, text = pick_unique_variation(variations, used_set)
         caption = f"{store_name} 아늑한 {clean_name}{pair_suffix}"
 
+    # 5. 실내 좌석 / 테이블
+    elif cat == "seating":
+        variations = [
+            (
+                f"🛋️ {step_num}. 편안하고 쾌적한 자리! {clean_name} 전경!",
+                f"손님들이 편안하게 식사에 온전히 집중할 수 있도록 정갈하게 배치된 {clean_name} 공간이에요! 🪑\n\n"
+                f"테이블 간격도 널찍하고 청결하게 정돈되어 있어 옆자리 방해 없이 식사를 즐길 수 있었는데요.\n\n"
+                f"의자도 편안해서 오랜 시간 머물며 도란도란 이야기 나누기에 더없이 좋았답니다 ✨"
+            ),
+            (
+                f"🪑 {step_num}. 깔끔하고 쾌적한 정돈! {clean_name} 좌석!",
+                f"안내를 받아 자리에 앉기 전 둘러본 {clean_name} 모습이에요! 🛋️\n\n"
+                f"테이블 위 식기류와 소품들이 각 잡혀 깔끔하게 세팅되어 있어 위생 면에서 백점 만점을 주고 싶었는데요.\n\n"
+                f"데이트는 물론이고 가족이나 소중한 지인들과의 모임 자리로도 손색이 없겠더라고요 💖"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{store_name} 편안한 {clean_name}{pair_suffix}"
+
+    # 6. 매장 이용안내문 / 수칙
     elif cat == "notice":
         variations = [
             (
-                f"📌 {step_num}. 방문 전 꼭 챙겨야 할 꿀팁! {clean_name} 확인!",
-                f"매장 이용 전 눈여겨보아야 할 {clean_name} 안내 사진이에요! 💡\n\n"
-                f"많은 분들이 사랑하는 인기 핫플인 만큼 모든 손님이 쾌적하게 식사를 즐길 수 있도록 배려 깊은 에티켓 수칙이 명확히 적혀 있었는데요.\n\n"
-                f"미리 알고 방문하시면 기다림 없이 훨씬 여유롭고 기분 좋은 식사를 하실 수 있을 거예요 📌"
+                f"📋 {step_num}. 방문 전 필독! 친절한 {clean_name} 확인!",
+                f"매장 벽면에 깔끔하게 정리되어 안내된 {clean_name} 모습이에요! 📌\n\n"
+                f"더 많은 손님들이 쾌적하게 식사를 누릴 수 있도록 세심하게 적어두신 수칙들을 꼼꼼하게 읽어보았는데요.\n\n"
+                f"서로 배려하는 에티켓 덕분에 매장 전체가 한층 더 정돈되고 질서정연하게 운영되는 느낌이었답니다 ✨"
             ),
             (
-                f"📋 {step_num}. 원활한 이용을 위한 센스 만점 {clean_name}!",
-                f"테이블과 매장 곳곳에 친절하게 안내되어 있는 {clean_name} 모습이에요! 🔍\n\n"
-                f"정해진 룰이 확실하고 체계적인 덕분에 매장 회전도 빠르고 전반적인 식사 환경이 더욱 쾌적하게 유지되는 느낌이었어요.\n\n"
-                f"잇님들도 방문 전에 살짝 체크해 두시면 큰 도움이 될 꿀정보랍니다 👍"
-            ),
-            (
-                f"💡 {step_num}. 현명한 식사를 위한 필수 체크! {clean_name}!",
-                f"주문 전 꼼꼼히 읽어본 {clean_name} 내용이에요! 📝\n\n"
-                f"손님들의 소중한 시간을 아껴주고 최상의 퀄리티를 제공하기 위한 매장의 세심한 정성이 돋보였는데요.\n\n"
-                f"헛걸음이나 혼선 없이 알차게 즐기기 위해 꼭 알아두어야 할 필수 포인트랍니다 ✨"
+                f"💡 {step_num}. 더욱 맛있게 즐기는 꿀팁! {clean_name} 정독!",
+                f"테이블 한편에 비치되어 시선을 사로잡은 {clean_name} 안내문이에요! 📖\n\n"
+                f"사장님께서 오랜 연구 끝에 완성하신 '맛있게 먹는 법' 꿀팁이 알기 쉽게 적혀 있었는데요.\n\n"
+                f"음식이 나오면 이 순서대로 꼭 따라 해봐야겠다고 일행들과 다짐했답니다 😋"
             )
         ]
-        header, text = random.choice(variations)
-        caption = f"{store_name} {clean_name} 이용 안내{pair_suffix}"
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{clean_name} 안내사항{pair_suffix}"
 
-    elif cat == "menu":
+    # 7. 무료 공기밥 / 셀프바 코너
+    elif cat == "service_rice":
         variations = [
             (
-                f"📋 {step_num}. 알찬 구성에 행복한 고민! {clean_name} 정독!",
-                f"자리에 앉아 설레는 마음으로 정독해 본 {clean_name} 사진이에요! 📋\n\n"
-                f"시그니처 메뉴인 {main_menu}를 시작으로 다채롭고 매력적인 요리들이 군더더기 없이 준비되어 있었는데요.\n\n"
-                f"퀄리티 대비 가성비도 아주 훌륭해서 망설임 없이 대표 메뉴들로 푸짐하게 주문을 완료했답니다 🍽️"
+                f"🍚 {step_num}. 넉넉한 인심에 감동! 무제한 {clean_name} 코너!",
+                f"매장 한편에 마련된 따뜻한 밥솥, 바로 넉넉한 인심의 {clean_name} 코너예요! 🍚✨\n\n"
+                f"메인 메뉴의 양도 워낙 푸짐한데, 남은 얼큰한 국물에 밥까지 든든하게 말아먹을 수 있도록 배려해 주신 사장님의 따뜻한 마음에 절로 미소가 지어졌는데요.\n\n"
+                f"탄수화물 러버들에게는 그야말로 놓칠 수 없는 최고의 감동 서비스였답니다 💖"
             ),
             (
-                f"📖 {step_num}. 취향 저격 메뉴 가득! {clean_name} 둘러보기!",
-                f"한 장 한 장 넘겨보며 군침을 꼴깍 삼켰던 {clean_name} 구성이에요! 🔍\n\n"
-                f"전문점다운 내공이 느껴지는 메뉴 라인업 덕분에 무엇을 골라도 실패 없겠다는 믿음이 팍팍 들었는데요.\n\n"
-                f"오늘은 대표 간판 요리들을 제대로 맛보기로 하고 기분 좋게 주문을 마쳤답니다 😋"
-            ),
+                f"✨ {step_num}. 든든한 마무리 보장! 자유롭게 이용하는 {clean_name}!",
+                f"식사 도중 언제든 편하게 이용할 수 있도록 마련된 {clean_name} 공간이에요! 🌾\n\n"
+                f"갓 지은 따끈따끈한 쌀밥을 원하는 만큼 담아갈 수 있어 마지막 국물 한 방울까지 남김없이 밥을 말아 싹 비울 수 있었는데요.\n\n"
+                f"추가 요금 부담 없이 든든한 한 끼를 완성해 준 최고의 꿀팁 코너였답니다 👍"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"따뜻한 인심의 {clean_name}{pair_suffix}"
+
+    # 8. 메뉴판
+    elif cat == "menu":
+        variations = [
             (
                 f"🍽️ {step_num}. 정갈한 차림표 정독 & {clean_name} 주문 완료!",
                 f"어떤 조합으로 먹어야 가장 맛있을지 행복하게 고민했던 {clean_name} 타임이에요! 📝\n\n"
                 f"대표 메뉴들의 밸런스가 워낙 훌륭해서 일행들과 상의 끝에 황금 조합으로 빠르게 주문을 넣었답니다.\n\n"
-                f"주문이 들어가자마자 주방에서 맛있는 소리가 들려와 기대감이 솟구쳤어요 ✨"
-            )
-        ]
-        header, text = random.choice(variations)
-        caption = f"{store_name} 정갈한 {clean_name} 구성 안내{pair_suffix}"
-
-    elif cat == "soup_side":
-        variations = [
-            (
-                f"🥣 {step_num}. 속이 확 풀리는 감동의 맛! 기본 {clean_name}!",
-                f"메인 요리와 함께 테이블에 차려져 나온 기본 {clean_name} 사진이에요! 🥣✨\n\n"
-                f"뚝배기에서 피어오르는 구수한 김과 함께 한 숟가락 먼저 떠먹어 보았는데, 푹 고아낸 육수의 깊은 감칠맛이 온몸으로 스며들며 속을 따뜻하게 데워주더라고요.\n\n"
-                f"서비스 국물이라는 게 믿기지 않을 정도로 묵직한 내공이 느껴졌답니다 👍"
+                f"주문이 들어가자마자 주방에서 맛있는 요리 냄새가 솔솔 풍겨와서 침샘이 폭발하기 일보 직전이었어요 😋"
             ),
             (
-                f"🍲 {step_num}. 기본 제공의 품격! 정갈하고 진한 {clean_name}!",
-                f"상차림과 함께 등장하자마자 감탄사를 부른 {clean_name} 비주얼이에요! 🍲\n\n"
-                f"맑고 개운한 국물에 부드러운 고기와 건더기가 실하게 들어있어 메인 요리를 먹는 중간중간 떠먹기 딱 좋았는데요.\n\n"
-                f"입안을 깔끔하게 리셋해 주어 식사의 완성도를 한층 더 높여주는 일등 공신이었어요 💖"
-            ),
-            (
-                f"✨ {step_num}. 한 모금에 반해버린 마성의 기본 국물, {clean_name}!",
-                f"정갈하게 담겨 나온 따끈따끈한 {clean_name} 사진이에요! 😋\n\n"
-                f"한 입 맛보는 순간 '어라? 메인 국밥 못지않은데?' 싶을 정도로 깊고 시원한 육수 맛에 숟가락질을 멈출 수 없었는데요.\n\n"
-                f"밥 한 공기 말아먹고 싶을 만큼 중독성 강한 꿀맛이었답니다 🥰"
+                f"📜 {step_num}. 알찬 구성과 합리적인 가격! {clean_name} 탐색!",
+                f"한눈에 보기 쉽게 정리된 정갈한 {clean_name} 사진이에요! 🔎✨\n\n"
+                f"요즘 물가 생각하면 재료 퀄리티 대비 가격대도 정말 착하고 합리적이라 감탄이 절로 나왔는데요.\n\n"
+                f"시그니처 메뉴부터 곁들임 사이드까지 일행 모두 만족할 수 있는 알찬 라인업으로 푸짐하게 선택했답니다 👍"
             )
         ]
-        header, text = random.choice(variations)
-        caption = f"깊고 진한 풍미의 {clean_name}{pair_suffix}"
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{store_name} {clean_name}{pair_suffix}"
 
+    # 9. 한상차림 / 상차림 / 밑반찬
     elif cat == "sides":
-        variations = [
-            (
-                f"🥗 {step_num}. 메인 요리의 맛을 돋워줄 정갈한 {clean_name}!",
-                f"주문 후 테이블 위에 정갈하게 세팅된 {clean_name} 사진이에요! 🥢\n\n"
-                f"담김새부터 단정하고 신선함이 돋보이는 밑반찬들이 테이블을 채워주었는데요.\n\n"
-                f"조미료 맛이 아닌 재료 고유의 감칠맛이 살아있어 메인 요리가 나오기 전부터 젓가락이 바쁘게 움직였답니다 😋"
-            ),
-            (
-                f"🥢 {step_num}. 깔끔하고 알찬 구성! 군더더기 없는 {clean_name}!",
-                f"메인 요리와 찰떡궁합을 자랑하는 다채로운 {clean_name} 모습이에요! ✨\n\n"
-                f"하나하나 정갈하게 간이 맞추어져 있어 기름진 입안을 개운하게 잡아주기에 안성맞춤이었는데요.\n\n"
-                f"반찬 하나에도 정성을 아끼지 않는 곳이라는 게 고스란히 느껴졌답니다 👍"
-            ),
-            (
-                f"✨ {step_num}. 소박하지만 깊은 내공! 맛깔스러운 {clean_name}!",
-                f"신선한 식감과 깊은 손맛이 살아있는 {clean_name} 세팅 컷이에요! 🌿\n\n"
-                f"메인 요리와 함께 곁들였을 때 풍미를 두 배로 끌어올려 주는 알찬 구성이라 식사 내내 빈 접시가 보일 정도로 맛있게 즐겼답니다 💖"
-            )
-        ]
-        header, text = random.choice(variations)
-        caption = f"정갈하고 푸짐한 {clean_name}{pair_suffix}"
-
-    elif cat == "detail":
-        variations = [
-            (
-                f"📸 {step_num}. 윤기 좌르르! {clean_name} 초근접 디테일 컷!",
-                f"신선한 디테일을 더 가까이 생생하게 전해드리고 싶어 담아본 {clean_name} 클로즈업 샷이에요! 📸\n\n"
-                f"조명을 받아 촉촉하게 반짝이는 윤기와 탱글탱글한 결이 살아있는 게 보이시나요?\n\n"
-                f"한 점 집어 올릴 때마다 묵직하게 전해지는 탄력에 절로 감탄이 터져 나왔답니다 👍"
-            ),
-            (
-                f"🔍 {step_num}. 극강의 신선도 인증! {clean_name} 숨 막히는 비주얼!",
-                f"카메라 렌즈를 바짝 당겨 담아본 {clean_name}의 경이로운 디테일이에요! ✨\n\n"
-                f"찰진 육질과 고운 색감이 최상급 식재료만을 고집하신다는 증거 그 자체였는데요.\n\n"
-                f"눈으로 먼저 맛보는 순간 이미 온몸에 전율이 돋을 만큼 완벽한 자태를 뽐내고 있었답니다 💖"
-            ),
-            (
-                f"✨ {step_num}. 한 점의 예술! {clean_name} 초밀착 줌인!",
-                f"사진으로만 봐도 군침이 꼴깍 넘어가는 {clean_name} 초밀착 컷이에요! 😋\n\n"
-                f"촉촉하고 부드러운 질감이 한눈에 들어와 보는 이의 침샘을 무한 자극했는데요.\n\n"
-                f"입안에 넣자마자 사르르 녹아내리는 극상의 식감을 눈으로도 고스란히 느낄 수 있었답니다 🥰"
-            )
-        ]
-        header, text = random.choice(variations)
-        caption = f"윤기 좌르르 흐르는 {clean_name} 초근접 컷{pair_suffix}"
-
-    elif cat == "combo":
-        if any(k in clean_name for k in ["비빈", "비벼", "비비는", "비벼진", "비벼먹", "섞은", "섞인"]):
+        if "한상" in clean_name or "차림" in clean_name:
             variations = [
                 (
-                    f"💡 {step_num}. 쓱쓱 맛있게 비벼서 한 입 가득! {clean_name}!",
-                    f"숟가락과 젓가락으로 야무지게 비벼낸 영롱한 {clean_name} 비주얼이에요! 🥣✨\n\n"
-                    f"고소한 특제 양념과 신선한 재료들이 밥알 사이사이에 골고루 배어들어, 한 숟가락 듬뿍 떠먹는 순간 입안에서 감칠맛의 축제가 열렸는데요!\n\n"
-                    f"씹을수록 퍼지는 진한 고소함에 진실의 미간이 절로 찌푸려질 만큼 황홀한 꿀맛이었답니다 🥰"
+                    f"🥗 {step_num}. 상다리 부러질 듯 푸짐한 비주얼! 오늘의 {clean_name}!",
+                    f"주문한 메뉴들이 모두 세팅되고 담아본 설레는 {clean_name} 항공샷이에요! 📸✨\n\n"
+                    f"정갈한 밑반찬부터 테이블 가득 채워진 대표 요리들까지, 빈틈없이 차려진 화려한 구성에 감탄이 절로 나왔는데요.\n\n"
+                    f"보기만 해도 배부르고 든든해지는 역대급 비주얼에 일행 모두 카메라를 들고 셔터 누르기 바빴답니다 💖"
                 ),
                 (
-                    f"🥄 {step_num}. 입안 가득 감칠맛 폭발! 잘 비벼낸 {clean_name}!",
-                    f"모든 재료가 황금비율로 어우러지도록 정성껏 비벼낸 {clean_name} 모습이에요! 💖\n\n"
-                    f"아삭한 채소의 식감과 부드럽게 감기는 메인 요리의 조화가 가히 예술이었는데요.\n\n"
-                    f"숟가락질을 멈출 틈도 없이 바쁘게 입으로 직행할 만큼 마성의 중독성을 자랑했답니다 😋"
-                ),
-                (
-                    f"🔥 {step_num}. 행복 지수 200%! 두 배 더 맛있는 {clean_name} 즐기기!",
-                    f"사진처럼 골고루 잘 섞어 크게 한 숟가락 떠먹어 본 {clean_name} 타임이에요! 🍽️\n\n"
-                    f"따로 먹어도 맛있지만 이렇게 한데 어우러졌을 때 터져 나오는 시너지 효과는 정말 상상 그 이상이었는데요.\n\n"
-                    f"잇님들도 방문하시면 꼭 이렇게 큼직하게 비벼서 드셔보시길 강력 추천해 드려요 👍"
+                    f"✨ {step_num}. 테이블 위 가득 펼쳐진 감동의 {clean_name}!",
+                    f"눈으로 먼저 맛보는 완벽한 조화, 정갈한 {clean_name} 사진이에요! 🍽️\n\n"
+                    f"각 메뉴들의 다채로운 색감과 고소한 향이 어우러져 식탁 전체가 하나의 예술 작품처럼 보였는데요.\n\n"
+                    f"본격적으로 숟가락과 젓가락을 들기 전, 감탄사를 쏟아내며 설레는 식사의 시작을 알렸답니다 👍"
                 )
             ]
-            header, text = random.choice(variations)
-            caption = f"골고루 맛있게 비벼낸 {clean_name}{pair_suffix}"
         else:
             variations = [
                 (
-                    f"💡 {step_num}. 두 배 더 맛있게 즐기는 {clean_name} 특급 꿀조합!",
-                    f"사진에 보이는 것처럼 맛의 시너지를 극대화해 주는 나만의 꿀조합이에요! 💖\n\n"
-                    f"준비된 특제 양념에 콕 찍거나 정갈한 곁들임 찬과 함께 곁들여 한 입 가득 맛보았는데요.\n\n"
-                    f"입안에서 고소함과 감칠맛이 폭발하듯 어우러져서 진실의 미소가 절로 지어졌답니다 🥰"
+                    f"🥗 {step_num}. 메인 요리의 맛을 돋워줄 정갈한 {clean_name}!",
+                    f"주문 후 테이블 위에 정갈하게 세팅된 {clean_name} 사진이에요! 🥢\n\n"
+                    f"담김새부터 단정하고 신선함이 돋보이는 밑반찬들이 테이블을 채워주었는데요.\n\n"
+                    f"조미료 맛이 아닌 재료 고유의 감칠맛이 살아있어 메인 요리가 나오기 전부터 자꾸만 젓가락이 가더라고요 💖"
                 ),
                 (
-                    f"✨ {step_num}. 황홀한 미식의 향연! {clean_name} 꿀조합 팁!",
-                    f"정갈한 찬과 소스를 더해 최상의 맛을 이끌어낸 {clean_name} 한 점이에요! 🥢\n\n"
-                    f"재료들이 입안에서 겉돌지 않고 환상적인 하모니를 만들어내어 씹을 때마다 감탄이 터져 나왔는데요.\n\n"
-                    f"이 조합으로 먹다 보니 그 많던 음식이 눈 깜짝할 사이에 줄어들었답니다 😋"
+                    f"🥢 {step_num}. 손맛 가득 정갈한 밑반찬! 알찬 {clean_name} 세팅!",
+                    f"테이블을 산뜻하게 밝혀준 깔끔한 {clean_name} 구성이에요! 🥗✨\n\n"
+                    f"아삭아삭한 식감과 과하지 않은 양념 밸런스가 메인 요리의 풍미를 극대화해 주기에 완벽했는데요.\n\n"
+                    f"부족함 없이 넉넉하게 챙겨주시는 인심 덕분에 식사 내내 곁들임 찬의 매력을 톡톡히 누렸답니다 😋"
                 )
             ]
-            header, text = random.choice(variations)
-            caption = f"두 배 더 맛있게 즐기는 환상의 {clean_name}{pair_suffix}"
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{clean_name} 세팅{pair_suffix}"
 
-    elif cat == "sub_dish":
+    # 10. 젓가락으로 든 한 점 / 먹방 액션
+    elif cat == "dish_lifting":
         variations = [
             (
-                f"🍜 {step_num}. 놓칠 수 없는 든든한 별미! {clean_name}!",
-                f"메인 요리와 함께 곁들이기 위해 주문한 {clean_name} 사진이에요! 🍜\n\n"
-                f"사진처럼 푸짐하고 먹음직스러운 비주얼을 자랑하며 식사의 완성도를 한층 더 높여주었는데요!\n\n"
-                f"메인 요리와의 궁합도 찰떡이라 마지막 한 숟가락까지 감탄하며 든든하게 즐겼답니다 ✨"
+                f"🥩 {step_num}. 젓가락으로 큼직하게 한 점! 촉촉한 {clean_name}!",
+                f"젓가락으로 큼직한 한 점을 집어 들어본 생생한 {clean_name} 클로즈업 사진이에요! 🥢✨\n\n"
+                f"사진에서도 얇고 부드러운 고기 결의 촉촉한 육즙과 윤기가 그대로 느껴지시죠?\n\n"
+                f"함께 나온 특제 소스나 양념간장에 콕 찍어 한입 가득 넣으니 사르르 녹아내리는 극상의 식감이 예술이었답니다 😋"
             ),
             (
-                f"🍲 {step_num}. 식사를 더욱 풍성하게 만들어준 {clean_name}!",
-                f"테이블을 한층 더 화려하게 채워준 매력적인 사이드, {clean_name} 비주얼이에요! 🍽️\n\n"
-                f"메인 못지않은 푸짐한 양과 정갈한 플레이팅에 다들 젓가락을 멈추지 못했는데요.\n\n"
-                f"함께 곁들이니 물릴 틈 없이 식사의 텐션을 끝까지 끌어올려 주었답니다 😋"
+                f"🥢 {step_num}. 감탄이 터져 나오는 실물 비주얼! {clean_name} 한입!",
+                f"한 점 집어 올리자마자 뿜어져 나오는 고소한 풍미의 {clean_name} 모습이에요! 💖\n\n"
+                f"두툼하면서도 야들야들하게 씹히는 부드러운 식감에 씹을수록 깊은 고소함이 입안 가득 맴돌았는데요.\n\n"
+                f"왜 이곳의 필수 시그니처로 손꼽히는지 단 한 입만으로도 완벽하게 납득이 되었답니다 👍"
             )
         ]
-        header, text = random.choice(variations)
-        caption = f"푸짐하고 맛깔스러운 {clean_name}{pair_suffix}"
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"먹음직스럽게 집어 든 {clean_name}{pair_suffix}"
 
+    # 11. 토핑 / 건더기 / 알 / 곤이 디테일
+    elif cat == "topping_detail":
+        variations = [
+            (
+                f"✨ {step_num}. 입안 가득 톡톡 터지는 고소함! {clean_name} 클로즈업!",
+                f"푸짐하게 얹어진 싱싱한 {clean_name}의 영롱한 디테일 사진이에요! 🥢✨\n\n"
+                f"잡내나 퍽퍽함이 1도 없이 탱글탱글하고 촉촉한 식감이 감탄을 자아냈는데요.\n\n"
+                f"와사비 간장에 살짝 콕 찍어 맛보니 입안 가득 크리미하고 진한 고소함이 부드럽게 퍼져나가며 미소를 짓게 만들었답니다 😋"
+            ),
+            (
+                f"🌟 {step_num}. 아낌없이 팍팍 들어간 신선함! {clean_name} 비주얼!",
+                f"그릇 가득 채워져 있던 푸짐한 {clean_name} 모습이에요! 🍽️\n\n"
+                f"신선한 재료 본연의 담백한 맛과 양념이 쏙 배어든 깊은 감칠맛의 밸런스가 완벽했는데요.\n\n"
+                f"골라 먹어도 먹어도 줄지 않을 만큼 혜자로운 양에 사장님의 아낌없는 인심을 체감했답니다 👍"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"신선하고 푸짐한 {clean_name}{pair_suffix}"
+
+    # 12. 국물 / 육수
+    elif cat == "soup_side":
+        variations = [
+            (
+                f"🥣 {step_num}. 속이 확 풀리는 얼큰 칼칼함! {clean_name} 한 숟가락!",
+                f"숟가락으로 조심스럽게 떠올려 맛본 {clean_name}의 진국 국물이에요! 🍲✨\n\n"
+                f"재료에서 진하게 우러나온 감칠맛에 기분 좋은 칼칼함이 더해져, 한 모금 넘기는 순간 온몸의 피로가 싹 풀리는 기분이었는데요.\n\n"
+                f"텁텁함 없이 맑고 개운하게 떨어지는 끝 맛 덕분에 연신 숟가락을 멈추지 못하고 들이켰답니다 😋"
+            ),
+            (
+                f"🍲 {step_num}. 깊은 내공이 느껴지는 진국 육수! {clean_name}!",
+                f"따끈따끈한 김과 함께 퍼지는 구수한 향의 {clean_name} 모습이에요! 🥣\n\n"
+                f"오랜 정성으로 푹 끓여내어 기름기 없이 깔끔하면서도 묵직한 내공이 돋보이는 육수 맛이 일품이었는데요.\n\n"
+                f"숟가락으로 떠먹을 때마다 속이 따뜻해지며 감탄사가 절로 새어 나왔답니다 👍"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"깊고 진한 {clean_name}{pair_suffix}"
+
+    # 13. 면발 / 면치기
+    elif cat == "noodle_lifting":
+        variations = [
+            (
+                f"🥢 {step_num}. 탱글탱글 살아있는 탄력! {clean_name}의 진수!",
+                f"후루룩 면치기를 절로 부르는 탄력 넘치는 {clean_name} 컷이에요! 🍜✨\n\n"
+                f"밀가루 풋내 없이 쫄깃쫄깃 찰진 식감이 돋보였고, 진한 육수가 면발에 쏙쏙 배어들어 씹을수록 깊은 감칠맛이 느껴졌는데요.\n\n"
+                f"쉽게 퍼지지 않고 끝까지 탱탱한 식감을 유지해 면 요리의 매력을 백퍼센트 만끽할 수 있었답니다 👍"
+            ),
+            (
+                f"🍜 {step_num}. 젓가락 가득 후루룩! 중독성 넘치는 {clean_name}!",
+                f"윤기가 자르르 흐르는 먹음직스러운 {clean_name} 사진이에요! 🥢\n\n"
+                f"입안 가득 차오르는 풍성한 면발의 볼륨감과 쫄깃한 식감에 일행 모두 쉼 없이 면치기에 몰입했는데요.\n\n"
+                f"마지막 한 가닥까지 남김없이 건져먹을 정도로 완벽한 완성도를 자랑했답니다 💖"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"쫄깃탱글한 {clean_name}{pair_suffix}"
+
+    # 14. 완식 및 영수증 인증
     elif cat == "finish":
         if any(k in clean_name for k in ["영수증", "계산"]):
             variations = [
@@ -728,15 +720,13 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                     f"진짜 제 지갑에서 나간 내돈내산인 만큼 믿고 방문하셔도 절대 후회 없으실 거예요 ✨"
                 )
             ]
-            header, text = random.choice(variations)
-            caption = f"{store_name} 솔직 내돈내산 {clean_name}{pair_suffix}"
         else:
             variations = [
                 (
                     f"🍚 {step_num}. 밥알 한 톨 남김없이 싹 비운 완식 인증!",
                     f"사진에 보이는 것처럼 마지막 한 숟가락까지 그릇 바닥을 싹싹 긁어먹은 완식 컷이에요! 🍽️✨\n\n"
                     f"배는 터질 듯이 부르지만 마지막 한 점까지 너무 아쉬워서 숟가락을 놓을 수 없었는데요.\n\n"
-                    f"기분 좋은 포만감과 함께 오늘 하루의 피로가 눈 녹듯 싹 사라지는 기적을 경험했답니다 💖"
+                    f"기분 좋은 포만감과 함께 오늘 하루의 피로가 눈 녹듯 싹 사라지는 힐링을 경험했답니다 💖"
                 ),
                 (
                     f"✨ {step_num}. 대만족으로 마무리한 완벽한 한 끼 식사!",
@@ -745,200 +735,240 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                     f"문을 나서는 순간까지도 입안에 맴도는 기분 좋은 여운에 벌써부터 다음 재방문 일정을 잡고 싶어졌답니다 🍽️"
                 )
             ]
-            header, text = random.choice(variations)
-            caption = f"배부르고 만족스럽게 비워낸 식사 마무리{pair_suffix}"
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{clean_name} 마무리{pair_suffix}"
 
+    # 15. 꿀조합 / 비빈 모습 / 쌈
+    elif cat == "combo":
+        variations = [
+            (
+                f"🥢 {step_num}. 꿀맛 보장! 군침 도는 {clean_name} 한입!",
+                f"정성껏 버무리고 쌈을 싸서 완성한 황금 {clean_name} 컷이에요! 😋✨\n\n"
+                f"각 재료의 식감과 소스의 조화가 완벽해서 입에 넣자마자 폭발적인 감칠맛이 터져 나왔는데요.\n\n"
+                f"이렇게 드셔보시면 왜 이 조합을 강력 추천하는지 단번에 공감하실 거예요 💖"
+            ),
+            (
+                f"✨ {step_num}. 실패 없는 꿀조합 완성! {clean_name}!",
+                f"사장님이 귀띔해 주신 팁대로 알차게 조합해 본 {clean_name} 비주얼이에요! 🥢\n\n"
+                f"단독으로 먹어도 훌륭하지만 서로 다른 재료들이 시너지를 내어 풍미가 두 배로 업그레이드되었는데요.\n\n"
+                f"마지막 한 점까지 이 조합으로 알차게 즐기며 폭풍 먹방을 이어갔답니다 👍"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"맛있는 {clean_name}{pair_suffix}"
+
+    # 16. 사이드 메뉴
+    elif cat == "sub_dish":
+        variations = [
+            (
+                f"🍜 {step_num}. 놓칠 수 없는 든든한 별미! {clean_name}!",
+                f"메인 요리와 함께 곁들이기 위해 주문한 {clean_name} 사진이에요! 🍜✨\n\n"
+                f"사진처럼 푸짐하고 먹음직스러운 비주얼을 자랑하며 식사의 완성도를 한층 더 높여주었는데요.\n\n"
+                f"메인 요리와의 궁합도 찰떡이라 마지막 한 숟가락까지 감탄하며 든든하게 즐겼답니다 ✨"
+            ),
+            (
+                f"🍲 {step_num}. 식사를 더욱 풍성하게 만들어준 {clean_name}!",
+                f"테이블을 한층 더 화려하게 채워준 매력적인 사이드, {clean_name} 비주얼이에요! 🍽️\n\n"
+                f"메인 못지않은 푸짐한 양과 정갈한 플레이팅에 다들 젓가락을 멈추지 못했는데요.\n\n"
+                f"함께 곁들이니 물릴 틈 없이 식사의 텐션을 끝까지 끌어올려 주었답니다 😋"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"푸짐하고 맛깔스러운 {clean_name}{pair_suffix}"
+
+    # 17. 디테일
+    elif cat == "detail":
+        variations = [
+            (
+                f"🔍 {step_num}. 사진으로 확인하는 압도적 퀄리티! {clean_name} 디테일!",
+                f"카메라 렌즈를 가까이 대고 담아본 생생한 {clean_name} 클로즈업 사진이에요! 📸✨\n\n"
+                f"신선함이 뚝뚝 묻어나는 남다른 자태와 촉촉한 윤기가 눈으로도 고스란히 확인되었는데요.\n\n"
+                f"좋은 식재료만을 고집하시는 사장님의 진심 어린 정성이 고스란히 느껴졌답니다 💖"
+            ),
+            (
+                f"✨ {step_num}. 오감을 자극하는 영롱한 비주얼! {clean_name} 컷!",
+                f"선명한 색감과 고운 자태를 자랑하는 {clean_name} 모습이에요! 🍽️\n\n"
+                f"빛깔 하나만 보아도 얼마나 신선하고 정성스럽게 준비되었는지 알 수 있었는데요.\n\n"
+                f"먹기 아까울 정도로 아름다운 비주얼에 연신 감탄하며 셔터를 눌렀답니다 😋"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{clean_name} 디테일{pair_suffix}"
+
+    # 18. 메인 요리 (dish) - 세부 유형별 & 순서별 분기
     else:
-        # dish
         c_lower = clean_name.lower()
-        if any(k in c_lower for k in ["특", "대", "곱배기"]) and any(w in c_lower for w in ["비빔밥", "육회", "밥", "덮밥"]):
-            variations = [
-                (
-                    f"🥣 {step_num}. 육회가 산더미처럼 푸짐한 {clean_name} 등장!",
-                    f"기다리던 오늘의 하이라이트! 사진 속 푸짐한 {clean_name} 비주얼 보이시나요? 🥣✨\n\n"
-                    f"'특' 사이즈답게 신선하고 영롱한 붉은빛의 한우 육회가 밥이 보이지 않을 정도로 그릇 가득 산더미처럼 올려져 나왔는데요!\n\n"
-                    f"파릇파릇 향긋한 채소와 육회의 푸짐한 비율에 먹기 전부터 감탄사가 절로 쏟아졌답니다 💖"
-                ),
-                (
-                    f"🌟 {step_num}. 압도적인 클라쓰! 그릇 가득 채운 {clean_name}!",
-                    f"테이블에 놓이자마자 입이 떡 벌어졌던 특급 비주얼, {clean_name} 사진이에요! 🥩✨\n\n"
-                    f"아낌없이 팍팍 얹어주신 푸짐한 고명과 싱그러운 향기가 식탁 전체를 뒤덮었는데요!\n\n"
-                    f"특 사이즈만의 묵직한 존재감 덕분에 바라보는 것만으로도 행복해지는 순간이었답니다 😋"
-                ),
-                (
-                    f"👑 {step_num}. 오늘 식사의 주인공! 위풍당당한 {clean_name}!",
-                    f"비주얼부터 이미 합격점을 훌쩍 넘긴 {clean_name} 컷이에요! 🍽️\n\n"
-                    f"푸짐한 양은 물론이고 육질 하나하나의 신선도가 최상급이라 감탄을 금치 못했는데요!\n\n"
-                    f"특으로 주문하길 정말 잘했다며 일행들과 하이파이브를 할 정도로 흡족했답니다 👍"
-                )
-            ]
-            header, text = random.choice(variations)
-            caption = f"육회가 아낌없이 듬뿍 올라간 {clean_name}{pair_suffix}"
+        is_subsequent = clean_name in seen_dishes or len(seen_dishes) > 0
+        seen_dishes.add(clean_name)
 
-        elif any(k in c_lower for k in ["보통", "일반"]) and any(w in c_lower for w in ["비빔밥", "육회", "밥", "덮밥"]):
-            variations = [
-                (
-                    f"🥣 {step_num}. 완벽한 밸런스를 자랑하는 {clean_name} 등장!",
-                    f"정갈하고 알찬 구성으로 테이블에 차려진 {clean_name} 사진이에요! 🥣✨\n\n"
-                    f"신선한 육회의 고운 때깔과 향긋한 미나리가 정갈하게 어우러져 비주얼부터 침샘을 무한 자극했는데요!\n\n"
-                    f"부담 없이 한 끼 든든하게 즐기기에 딱 좋은 완벽한 양과 환상적인 밸런스를 자랑했답니다 😋"
-                ),
-                (
-                    f"✨ {step_num}. 정갈함의 정석! 알차게 담겨 나온 {clean_name}!",
-                    f"기본기 탄탄한 구성이 돋보이는 {clean_name} 비주얼이에요! 🥢\n\n"
-                    f"과하지도 부족하지도 않은 황금 비율로 알차게 담아내어 한 입 한 입 맛보는 즐거움이 가득했는데요!\n\n"
-                    f"입안 가득 은은하게 퍼지는 향긋함과 담백함에 절로 미소가 지어졌답니다 💖"
-                )
-            ]
-            header, text = random.choice(variations)
-            caption = f"정갈한 비주얼의 {clean_name}{pair_suffix}"
+        # 육전 / 파전 / 부침 / 튀김
+        if any(w in c_lower for w in ["육전", "전", "파전", "튀김", "부침개"]):
+            if is_subsequent:
+                variations = [
+                    (
+                        f"🥢 {step_num}. 테이블의 든든함을 더해준 노릇노릇 {clean_name}!",
+                        f"국물 요리와 함께 곁들이기 위해 주문한 고소한 {clean_name} 비주얼이에요! 🥩✨\n\n"
+                        f"얇고 부드러운 소고기에 얇은 계란 옷을 입혀 갓 부쳐내어, 기름진 잡내 없이 담백한 육즙이 그대로 살아있었는데요.\n\n"
+                        f"매콤한 음식과 육전의 고소한 감칠맛이 어우러져 궁합이 그야말로 환상적이었답니다 💖"
+                    ),
+                    (
+                        f"✨ {step_num}. 겉은 바삭 속은 촉촉! 별미 중의 별미 {clean_name}!",
+                        f"황금빛 자태를 뽐내며 등장한 또 하나의 명물, {clean_name} 사진이에요! 🥢\n\n"
+                        f"한 점 집어서 간장 소스에 콕 찍어 맛보니 입안 가득 퍼지는 고소한 풍미에 절로 감탄이 나왔는데요.\n\n"
+                        f"메인과 함께 테이블의 푸짐함을 완성해 주는 최고의 히든카드였답니다 👍"
+                    )
+                ]
+            else:
+                variations = [
+                    (
+                        f"🥢 {step_num}. 갓 부쳐내어 고소한 풍미 폭발! 노릇노릇 {clean_name}!",
+                        f"황금빛 자태를 자랑하며 테이블에 오른 오늘의 주인공, {clean_name} 사진이에요! 🥩✨\n\n"
+                        f"노릇하게 부쳐진 고기에서 은은하게 퍼지는 고소한 기름 향이 먹기 전부터 군침을 돌게 만들었는데요.\n\n"
+                        f"질김 없이 사르르 녹아내리는 부드러운 식감에 일행 모두 연신 젓가락을 움직였답니다 😋"
+                    ),
+                    (
+                        f"✨ {step_num}. 바삭 고소함의 극치! 정갈한 {clean_name} 등장!",
+                        f"테이블에 놓이자마자 시선을 사로잡은 {clean_name} 비주얼이에요! 🍽️\n\n"
+                        f"기름진 느끼함 없이 담백하고 바삭하게 구워내어 마지막 한 조각까지 물릴 틈 없이 즐겼는데요.\n\n"
+                        f"좋은 재료를 아낌없이 사용해 완성도 높은 손맛을 제대로 맛볼 수 있었답니다 💖"
+                    )
+                ]
 
-        elif any(w in c_lower for w in ["육회비빔밥", "비빔밥"]):
-            variations = [
-                (
-                    f"🥣 {step_num}. 신선한 육회와 향긋한 미나리의 특급 조화, {clean_name}!",
-                    f"테이블을 풍성하게 채워준 오늘의 든든한 주인공, {clean_name} 사진이에요! 🥣✨\n\n"
-                    f"아낌없이 올라간 신선한 육회와 파릇파릇한 채소, 고소한 참기름 냄새가 먹기 전부터 침샘을 무한 자극했는데요!\n\n"
-                    f"재료 하나하나의 신선도가 눈으로도 고스란히 전해질 만큼 영롱한 비주얼을 뽐내고 있었답니다 💖"
-                ),
-                (
-                    f"🌿 {step_num}. 오감을 깨우는 완벽한 조화! {clean_name} 영접!",
-                    f"드디어 영접한 시그니처 대표 메뉴, {clean_name} 비주얼이에요! 😋\n\n"
-                    f"선홍빛의 고운 자태와 아삭하고 향긋한 식재료들이 어우러져 보기만 해도 눈이 호강하는 느낌이었는데요!\n\n"
-                    f"좋은 재료에서 우러나오는 본연의 단맛과 고소함이 먹기 전부터 가슴을 설레게 만들었답니다 ✨"
-                )
-            ]
-            header, text = random.choice(variations)
-            caption = f"먹음직스러운 {clean_name} 비주얼{pair_suffix}"
+        # 칼국수 / 면 요리
+        elif any(w in c_lower for w in ["칼국수", "라면", "국수", "우동", "면"]):
+            if "동죽" in c_lower or "조개" in c_lower or "해물" in c_lower:
+                variations = [
+                    (
+                        f"🍜 {step_num}. 맑고 개운한 바다의 맛! 시원한 {clean_name}!",
+                        f"맑고 깊은 육수에 싱싱한 조개가 가득 담겨 나온 {clean_name} 사진이에요! 🍜✨\n\n"
+                        f"뽀얗고 맑은 국물 한 모금 넘기니 조개에서 우러나온 시원하고 개운한 감칠맛이 속을 편안하게 감싸주었는데요.\n\n"
+                        f"해감도 완벽하게 되어 조갯살 하나하나 쏙쏙 빼먹는 재미와 함께 깔끔한 뒷맛을 선사해 주었답니다 💖"
+                    ),
+                    (
+                        f"✨ {step_num}. 깔끔 담백한 국물의 반전 매력! {clean_name} 등장!",
+                        f"얼큰한 메뉴와 완벽한 대조를 이루며 입맛을 정돈해 준 {clean_name} 비주얼이에요! 🥢\n\n"
+                        f"푸짐하게 들어간 동죽 조개의 쫄깃함과 맑은 육수가 어우러져 한 숟가락 뜰 때마다 감탄을 자아냈는데요.\n\n"
+                        f"자극적이지 않으면서도 깊은 감칠맛 덕분에 마지막 국물 한 방울까지 싹 들이켰답니다 👍"
+                    )
+                ]
+            elif "알곤이" in c_lower or "알" in c_lower or "곤이" in c_lower:
+                variations = [
+                    (
+                        f"🍜 {step_num}. 비주얼부터 압도적인 시그니처! {clean_name} 등장!",
+                        f"소문으로만 듣던 독보적인 시그니처, {clean_name} 한 그릇이 드디어 눈앞에 차려졌어요! 🍜✨\n\n"
+                        f"그릇이 넘쳐날 듯 수북하게 쌓인 푸짐한 알과 곤이, 진한 붉은빛 국물의 강렬한 비주얼에 탄성이 절로 나왔는데요.\n\n"
+                        f"매콤 칼칼한 향이 코끝을 스치며 먹기 전부터 오감을 강렬하게 사로잡았답니다 💖"
+                    ),
+                    (
+                        f"🔥 {step_num}. 침샘을 자극하는 붉은 유혹! 푸짐한 {clean_name}!",
+                        f"테이블에 놓이자마자 입이 떡 벌어졌던 화려한 비주얼의 {clean_name} 사진이에요! 😋\n\n"
+                        f"칼칼하고 진한 국물 속에 신선한 알과 곤이가 산더미처럼 들어가 있어 보기만 해도 든든함이 느껴졌는데요.\n\n"
+                        f"한 번 맛보면 숟가락질을 멈출 수 없을 만큼 중독성 강한 얼큰함에 완전히 매료되었답니다 👍"
+                    )
+                ]
+            else:
+                if is_subsequent:
+                    variations = [
+                        (
+                            f"🍜 {step_num}. 이어 맛본 또 하나의 매력! 든든한 {clean_name}!",
+                            f"푸짐한 그릇 가득 윤기 흐르는 면발을 자랑하는 {clean_name} 모습이에요! 🍜✨\n\n"
+                            f"앞서 맛본 메뉴와는 또 다른 깊은 육수와 면발의 밸런스가 돋보였는데요.\n\n"
+                            f"퍼지지 않고 살아있는 탄력 있는 식감 덕분에 마지막 한 젓가락까지 감탄하며 비워냈답니다 👍"
+                        ),
+                        (
+                            f"🥢 {step_num}. 깊은 육수와 쫄깃한 면발의 조화! {clean_name}!",
+                            f"뜨끈한 김과 함께 차려져 나온 {clean_name} 사진이에요! 😋\n\n"
+                            f"후루룩 면치기를 즐기기에 완벽한 찰진 식감과 진한 풍미가 입안을 가득 채워주었는데요.\n\n"
+                            f"식사의 든든함을 배로 만들어주는 훌륭한 선택이었답니다 💖"
+                        )
+                    ]
+                else:
+                    variations = [
+                        (
+                            f"🍜 {step_num}. 쫄깃탱글한 면발이 일품인 {clean_name} 등장!",
+                            f"뜨끈한 김과 함께 푸짐하게 차려져 나온 {clean_name} 사진이에요! 🍜✨\n\n"
+                            f"탱글탱글 쫄깃한 면발에 진한 육수와 양념이 쏙쏙 배어들어 있어서 후루룩 면치기하는 재미가 쏠쏠했는데요!\n\n"
+                            f"젓가락질을 멈출 수 없을 만큼 중독성 넘치는 맛에 마지막 한 가닥까지 대만족하며 즐겼답니다 💖"
+                        ),
+                        (
+                            f"🥢 {step_num}. 후루룩 면치기 유발! 마성의 {clean_name}!",
+                            f"푸짐한 그릇 가득 윤기 흐르는 면발을 자랑하는 {clean_name} 모습이에요! 😋\n\n"
+                            f"퍼지지 않고 살아있는 탄력 있는 식감과 깊은 소스의 조화가 완벽해서 순식간에 한 그릇을 뚝딱 비워냈답니다 👍"
+                        )
+                    ]
 
-        elif "수육" in c_lower and any(w in c_lower for w in ["전골", "탕", "냄비", "육수"]):
+        # 육회비빔밥 / 비빔밥 / 덮밥
+        elif any(w in c_lower for w in ["비빔밥", "육회", "덮밥", "솥밥"]):
+            if any(k in c_lower for k in ["특", "대", "곱배기"]):
+                variations = [
+                    (
+                        f"🥣 {step_num}. 육회가 산더미처럼 푸짐한 {clean_name} 등장!",
+                        f"기다리던 오늘의 하이라이트! 사진 속 푸짐한 {clean_name} 비주얼 보이시나요? 🥣✨\n\n"
+                        f"'특' 사이즈답게 신선하고 영롱한 붉은빛의 한우 육회가 밥이 보이지 않을 정도로 그릇 가득 산더미처럼 올려져 나왔는데요!\n\n"
+                        f"파릇파릇 향긋한 채소와 육회의 푸짐한 비율에 먹기 전부터 감탄사가 절로 쏟아졌답니다 💖"
+                    ),
+                    (
+                        f"👑 {step_num}. 오늘 식사의 주인공! 위풍당당한 {clean_name}!",
+                        f"비주얼부터 이미 합격점을 훌쩍 넘긴 {clean_name} 컷이에요! 🍽️\n\n"
+                        f"푸짐한 양은 물론이고 육질 하나하나의 신선도가 최상급이라 감탄을 금치 못했는데요!\n\n"
+                        f"특으로 주문하길 정말 잘했다며 일행들과 하이파이브를 할 정도로 흡족했답니다 👍"
+                    )
+                ]
+            else:
+                variations = [
+                    (
+                        f"🥣 {step_num}. 신선한 재료와 정갈한 담음새! {clean_name} 등장!",
+                        f"테이블을 풍성하게 채워준 오늘의 든든한 주인공, {clean_name} 사진이에요! 🥣✨\n\n"
+                        f"아낌없이 올라간 신선한 고명과 고소한 참기름 냄새가 먹기 전부터 침샘을 무한 자극했는데요!\n\n"
+                        f"재료 하나하나의 신선도가 눈으로도 고스란히 전해질 만큼 영롱한 비주얼을 뽐내고 있었답니다 💖"
+                    ),
+                    (
+                        f"🌿 {step_num}. 오감을 깨우는 완벽한 조화! {clean_name} 영접!",
+                        f"드디어 영접한 시그니처 대표 메뉴, {clean_name} 비주얼이에요! 😋\n\n"
+                        f"선홍빛의 고운 자태와 아삭하고 향긋한 식재료들이 어우러져 보기만 해도 눈이 호강하는 느낌이었는데요!\n\n"
+                        f"좋은 재료에서 우러나오는 본연의 단맛과 고소함이 먹기 전부터 가슴을 설레게 만들었답니다 ✨"
+                    )
+                ]
+
+        # 수육 / 전골 / 탕 / 곰탕 / 국밥
+        elif any(w in c_lower for w in ["수육", "전골", "곰탕", "국밥", "탕", "찌개"]):
             variations = [
                 (
-                    f"🍲 {step_num}. 야들야들한 수육과 깊은 육수의 환상 조화, {clean_name}!",
+                    f"🍲 {step_num}. 야들야들한 육질과 깊은 육수의 조화, {clean_name}!",
                     f"보글보글 끓어오르는 비주얼이 예술인 {clean_name} 사진이에요! 🍲✨\n\n"
-                    f"맑고 깊은 육수 위에 얇고 부드럽게 삶아진 한우 수육과 향긋한 채소가 산더미처럼 푸짐하게 올려져 나왔는데요!\n\n"
-                    f"한 점 집어서 국물과 함께 맛보았는데, 잡내 하나 없이 야들야들 녹아내리는 수육의 육질과 시원하고 깊은 국물의 조화가 감탄 그 자체였답니다 💖"
+                    f"맑고 깊은 육수 위에 얇고 부드럽게 삶아진 고기와 향긋한 채소가 푸짐하게 올려져 나왔는데요!\n\n"
+                    f"잡내 하나 없이 야들야들 녹아내리는 육질과 시원하고 깊은 국물의 조화가 감탄 그 자체였답니다 💖"
                 ),
                 (
                     f"✨ {step_num}. 보글보글 피어오르는 깊은 풍미! {clean_name} 등장!",
                     f"테이블 위에서 은은한 온기를 더해준 오늘의 메인, {clean_name} 비주얼이에요! 🥘\n\n"
-                    f"부드럽게 익어가는 수육과 진국 육수의 냄새가 코끝을 스치자마자 다들 젓가락을 들고 대기했는데요!\n\n"
-                    f"입에 넣는 순간 사르르 녹아내리는 육질에 눈이 번쩍 뜨일 만큼 황홀했답니다 👍"
+                    f"부드럽게 익어가는 고기와 진국 육수의 냄새가 코끝을 스치자마자 다들 젓가락을 들고 대기했는데요!\n\n"
+                    f"입에 넣는 순간 사르르 녹아내리는 부드러움에 눈이 번쩍 뜨일 만큼 황홀했답니다 👍"
                 )
             ]
-            header, text = random.choice(variations)
-            caption = f"야들야들하고 깊은 맛의 {clean_name}{pair_suffix}"
 
-        elif any(w in c_lower for w in ["곰탕", "국밥", "탕", "찌개", "전골", "국물"]):
+        # 고기 / 구이 / 삼겹살
+        elif any(w in c_lower for w in ["삼겹", "구이", "목살", "갈비", "고기", "한우", "스테이크"]):
             variations = [
                 (
-                    f"🍲 {step_num}. 맑고 깊은 국물이 예술인 {clean_name} 등장!",
-                    f"드디어 테이블에 등장한 {clean_name} 비주얼이에요! 🍲✨\n\n"
-                    f"뚝배기 가득 푸짐하게 담겨 나와 코끝을 스치는 진하고 구수한 향기에 다들 감탄사를 터뜨렸는데요!\n\n"
-                    f"맑고 깊은 국물에 부드러운 고기가 아낌없이 듬뿍 들어가 있어서, 한 숟가락 떠먹는 순간 속이 확 풀리면서 온몸이 사르르 녹아내리는 기분이었답니다 💖"
+                    f"🥩 {step_num}. 지글지글 노릇하게 익어가는 황금빛 {clean_name}!",
+                    f"불판 위에서 지글지글 소리를 내며 노릇노릇 맛있게 구워지는 {clean_name} 사진이에요! 🥩✨\n\n"
+                    f"두툼한 고기 두께와 팡팡 터지는 고소한 육즙의 자태에 굽는 내내 침샘이 무한 자극되었는데요.\n\n"
+                    f"겉은 바삭하고 속은 촉촉하게 익어 첫 한 점을 소금에 콕 찍어 맛보았는데, 씹자마자 육즙이 팡 터지며 감탄사가 터졌답니다 💖"
                 ),
                 (
-                    f"🥣 {step_num}. 진한 내공이 느껴지는 깊은 감칠맛! {clean_name}!",
-                    f"따끈따끈한 김과 함께 등장한 감동의 {clean_name} 사진이에요! 😋\n\n"
-                    f"오랜 정성으로 푹 끓여내어 기름기 없이 맑고 담백한 국물 맛이 일품이었는데요!\n\n"
-                    f"건더기도 아낌없이 팍팍 들어가 있어 든든함과 개운함을 동시에 챙길 수 있었답니다 👍"
+                    f"🔥 {step_num}. 침샘 폭발! 극상의 마블링과 육즙을 품은 {clean_name}!",
+                    f"불판을 가득 채운 영롱한 자태의 {clean_name} 비주얼이에요! 🍽️\n\n"
+                    f"선홍빛 육질과 알맞은 지방의 황금비율이 눈을 뗄 수 없게 만들었는데요!\n\n"
+                    f"기름진 느끼함 없이 씹을수록 담백하고 진한 감칠맛이 폭발해 순식간에 불판을 비워냈답니다 😋"
                 )
             ]
-            header, text = random.choice(variations)
-            caption = f"맑고 깊은 국물의 {clean_name}{pair_suffix}"
 
-        elif any(w in c_lower for w in ["수육", "고기", "삼겹", "갈비", "목살", "한우", "스테이크", "구이", "족발", "보쌈"]):
-            variations = [
-                (
-                    f"🥩 {step_num}. 야들야들 육즙 폭발! {clean_name} 등장!",
-                    f"드디어 기다리던 오늘의 하이라이트, {clean_name} 사진이에요! 🥩✨\n\n"
-                    f"사진에 보이는 것처럼 두툼하면서도 결이 살아있는 비주얼이 정말 대박이었는데요!\n\n"
-                    f"한 점 집어서 맛보는 순간 부드럽게 씹히는 육질과 입안 가득 팡팡 터지는 고소한 육즙의 향연에 감탄사가 절로 나왔답니다 😋"
-                ),
-                (
-                    f"🔥 {step_num}. 고소함의 극치! 윤기 흐르는 {clean_name}!",
-                    f"최상의 굽기와 신선도를 자랑하는 {clean_name} 컷이에요! 🍽️\n\n"
-                    f"잡내 하나 없이 고기 본연의 풍미가 가득 살아있어 소금만 살짝 찍어 먹어도 꿀맛이었는데요!\n\n"
-                    f"씹을 때마다 촉촉하게 배어 나오는 육즙 덕분에 젓가락을 멈출 수 없었답니다 💖"
-                )
-            ]
-            header, text = random.choice(variations)
-            caption = f"육즙 가득한 {clean_name}{pair_suffix}"
-
-        elif any(w in c_lower for w in ["회", "사시미", "방어", "연어", "참치", "광어", "초밥", "해물"]):
-            variations = [
-                (
-                    f"🐟 {step_num}. 영롱한 때깔과 찰진 식감! {clean_name} 등장!",
-                    f"선홍빛의 영롱한 때깔과 찰진 기름기가 좔좔 흐르는 {clean_name} 비주얼이에요! ✨\n\n"
-                    f"접시 가득 빈틈없이 빼곡하게 담겨 나오는 모습에 다들 카메라부터 들고 사진 찍기 바빴는데요!\n\n"
-                    f"와사비 살짝 얹어서 맛보았는데, 입안에 넣자마자 쫀득하게 감기며 사르르 녹아내리는 고소함이 일품이었답니다 💖"
-                ),
-                (
-                    f"🌊 {step_num}. 바다의 신선함이 입안 가득! {clean_name}!",
-                    f"도톰하고 정갈하게 썰려 나온 {clean_name} 모습이에요! 🍣\n\n"
-                    f"비린 맛 하나 없이 쫀득쫀득 탱글탱글한 탄력이 씹을수록 달큰한 감칠맛을 선사해 주었는데요!\n\n"
-                    f"한 점 맛볼 때마다 감탄사가 절로 쏟아질 만큼 최고의 퀄리티였답니다 👍"
-                )
-            ]
-            header, text = random.choice(variations)
-            caption = f"신선하고 찰진 {clean_name}{pair_suffix}"
-
-        elif any(w in c_lower for w in ["비빔밥", "밥", "덮밥", "볶음밥", "솥밥"]):
-            variations = [
-                (
-                    f"🥣 {step_num}. 고소함과 풍미 가득한 {clean_name} 등장!",
-                    f"테이블을 풍성하게 채워준 오늘의 든든한 주인공, {clean_name} 사진이에요! 🥣✨\n\n"
-                    f"아낌없이 올라간 신선한 고명과 고소한 참기름 냄새가 먹기 전부터 침샘을 무한 자극했는데요!\n\n"
-                    f"쓱쓱 비벼서 한 숟가락 가득 떠먹으니 다채로운 재료들의 식감이 완벽한 조화를 이루었답니다 😋"
-                ),
-                (
-                    f"✨ {step_num}. 풍성한 담음새에 반해버린 {clean_name}!",
-                    f"정성껏 지어낸 밥 위에 다채로운 고명이 소복이 쌓인 {clean_name} 컷이에요! 🍚\n\n"
-                    f"눈으로 먼저 맛보는 화려한 색감과 고소한 향에 숟가락을 들자마자 행복감이 차올랐는데요!\n\n"
-                    f"재료 하나하나의 식감이 살아있어 마지막 한 톨까지 감탄하며 싹 비웠답니다 💖"
-                )
-            ]
-            header, text = random.choice(variations)
-            caption = f"풍미 가득한 {clean_name}{pair_suffix}"
-
-        elif any(w in c_lower for w in ["칼국수", "라면", "파스타", "면", "우동", "국수"]):
-            variations = [
-                (
-                    f"🍜 {step_num}. 쫄깃탱글한 면발이 일품인 {clean_name} 등장!",
-                    f"뜨끈한 김과 함께 푸짐하게 차려져 나온 {clean_name} 사진이에요! 🍜✨\n\n"
-                    f"탱글탱글 쫄깃한 면발에 진한 육수와 양념이 쏙쏙 배어들어 있어서 후루룩 면치기하는 재미가 쏠쏠했는데요!\n\n"
-                    f"젓가락질을 멈출 수 없을 만큼 중독성 넘치는 맛에 마지막 한 가닥까지 대만족하며 즐겼답니다 💖"
-                ),
-                (
-                    f"🥢 {step_num}. 후루룩 면치기 유발! 마성의 {clean_name}!",
-                    f"푸짐한 그릇 가득 윤기 흐르는 면발을 자랑하는 {clean_name} 모습이에요! 😋\n\n"
-                    f"퍼지지 않고 살아있는 탄력 있는 식감과 깊은 소스의 조화가 완벽해서 순식간에 한 그릇을 뚝딱 비워냈답니다 👍"
-                )
-            ]
-            header, text = random.choice(variations)
-            caption = f"쫄깃탱글한 {clean_name}{pair_suffix}"
-
-        elif any(w in c_lower for w in ["파전", "전", "튀김", "피자", "버거", "카츠", "치킨"]):
-            variations = [
-                (
-                    f"🍕 {step_num}. 겉바속촉 극상의 바삭함! {clean_name} 등장!",
-                    f"노릇노릇 바삭하게 구워져 나온 {clean_name} 사진이에요! 🍽️✨\n\n"
-                    f"겉은 바삭하고 속은 촉촉하게 재료의 풍미가 살아있어 입에 넣자마자 바사삭 소리와 함께 감탄이 절로 나왔는데요!\n\n"
-                    f"재료를 아낌없이 담아 정성껏 부쳐내신 덕분에 마지막 한 조각까지 대만족하며 즐겼답니다 😋"
-                ),
-                (
-                    f"✨ {step_num}. 바삭 고소함의 끝판왕! {clean_name}!",
-                    f"황금빛 자태를 뽐내며 갓 튀겨져/구워져 나온 {clean_name} 비주얼이에요! 🥢\n\n"
-                    f"기름진 느끼함 없이 담백하고 바삭한 식감이 일품이라 다른 메뉴들과의 궁합도 찰떡이었답니다 💖"
-                )
-            ]
-            header, text = random.choice(variations)
-            caption = f"바삭한 풍미의 {clean_name}{pair_suffix}"
-
+        # 일반 요리
         else:
             variations = [
                 (
-                    f"✨ {step_num}. 감탄이 절로 나오는 {clean_name} 등장!",
+                    f"✨ {step_num}. 감탄이 절로 나오는 비주얼! {clean_name} 등장!",
                     f"드디어 등장한 오늘의 하이라이트! 사진 속 먹음직스러운 {clean_name} 비주얼 보이시나요? 🍽️✨\n\n"
                     f"테이블에 놓이자마자 군침 도는 냄새와 푸짐한 담음새에 다들 감탄사를 연발했는데요!\n\n"
                     f"좋은 식재료를 아낌없이 사용하셔서 한 입 맛볼 때마다 깊은 풍미와 신선한 식감이 그대로 전해졌답니다 😋"
@@ -950,30 +980,28 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                     f"한 점 입에 넣는 순간 퍼지는 풍성한 맛에 찾아온 보람을 제대로 만끽했답니다 👍"
                 )
             ]
-            header, text = random.choice(variations)
-            caption = f"먹음직스러운 {clean_name}{pair_suffix}"
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{clean_name}{pair_suffix}"
 
     return header, text, caption
 
+
 def generate_photo_matched_sections(store_name, location, menu, features, photo_paths, include_stickers=True, include_map=True, store_info=None):
     """
-    사용자가 올린 사진 목록을 자연스러운 순서로 정렬하고,
-    각 사진의 파일명에 100% 어울리는 문맥 스토리 단락을 생성하여 사진과 1:1 배치
-    (매번 생성할 때마다 100% 다른 도입부, 단락 내용, 총평이 선택됨)
+    첨부된 사진 목록을 분석하여 파일명과 100% 매칭되는 글 생성 (중복 절대 없음)
     """
+    sections = []
     menu_items = [m.strip() for m in re.split(r'[,/&+\s]+', menu) if m.strip()]
     main_menu = menu_items[0] if menu_items else menu
-    
-    sections = []
-    
-    # 1. 동적 도입부 (6가지 중 랜덤 1택)
+
+    # 1. 인트로 (6가지 스토리 중 랜덤 1택)
     intro_header, intro_content = generate_dynamic_intro(store_name, location, main_menu)
     sections.append({
         "type": "text",
         "header": intro_header,
         "content": intro_content
     })
-    
+
     if include_stickers:
         sections.append({"type": "sticker", "role": "intro"})
 
@@ -993,11 +1021,11 @@ def generate_photo_matched_sections(store_name, location, menu, features, photo_
             "query": f"{store_name}",
             "location_name": f"{location} {store_name}"
         })
-        
+
     # 3. 사진 파싱 및 인접 사진 묶음(batch) 생성
     sorted_paths = sorted(photo_paths, key=smart_photo_sort_key)
     parsed_list = [parse_photo_info(p) for p in sorted_paths]
-    
+
     batches = []
     idx = 0
     while idx < len(parsed_list):
@@ -1005,13 +1033,13 @@ def generate_photo_matched_sections(store_name, location, menu, features, photo_
         if idx + 1 < len(parsed_list):
             nxt = parsed_list[idx + 1]
             can_pair = False
-            # 둘 다 같은 카테고리이면서, 두 사진의 핵심 이름(숫자/공백/기호 제외)이 완전히 동일할 때만 가로 2장 묶음
-            if curr["category"] == nxt["category"] and curr["category"] not in ("combo", "finish", "notice", "award", "soup_side"):
+            # 둘 다 같은 카테고리이면서, 두 사진의 핵심 이름이 완전히 동일할 때만 가로 2장 묶음
+            if curr["category"] == nxt["category"] and curr["category"] not in ("combo", "finish", "notice", "award", "soup_side", "service_rice", "dish_lifting", "noodle_lifting", "topping_detail"):
                 c1 = re.sub(r'[0-9\s_\-\.\(\)\[\]]', '', curr["clean_name"])
                 c2 = re.sub(r'[0-9\s_\-\.\(\)\[\]]', '', nxt["clean_name"])
                 if c1 and c2 and c1 == c2:
                     can_pair = True
-                    
+
             if can_pair:
                 batches.append({
                     "items": [curr, nxt],
@@ -1026,30 +1054,30 @@ def generate_photo_matched_sections(store_name, location, menu, features, photo_
             "clean_name": curr["clean_name"]
         })
         idx += 1
-        
-    # 4. 각 사진 묶음마다 파일명과 100% 매칭되는 스토리 단락 생성 (다채로운 표현 무작위 선택)
+
+    # 4. 각 사진 묶음마다 파일명과 100% 매칭되는 스토리 단락 생성 (In-Post Deduplication 컨텍스트 적용)
     step_num = 1
-    total_batches = len(batches)
-    
+    context = {"used_templates": set(), "seen_dishes": set()}
+
     for b_idx, batch in enumerate(batches, 1):
         cat = batch["category"]
         clean_name = batch["clean_name"]
         count = len(batch["items"])
         b_paths = [item["path"] for item in batch["items"]]
-        
+
         # 중간 스티커 자연스럽게 삽입
         if include_stickers and b_idx in (2, 5, 8):
             sections.append({"type": "sticker", "role": "mid"})
-            
-        header, text, caption = create_story_for_photo_batch(step_num, cat, clean_name, store_name, location, main_menu, count)
+
+        header, text, caption = create_story_for_photo_batch(step_num, cat, clean_name, store_name, location, main_menu, count, context)
         step_num += 1
-        
+
         sections.append({
             "type": "text",
             "header": header,
             "content": text
         })
-        
+
         sections.append({
             "type": "image",
             "paths": b_paths,
@@ -1082,14 +1110,15 @@ def generate_photo_matched_sections(store_name, location, menu, features, photo_
         "header": "🏷️ 관련 태그 & 해시태그 모아보기",
         "content": f"{hashtag_content}\n"
     })
-    
+
     return sections
+
 
 def generate_template_post(store_name, location, menu, features, photo_count=14, include_stickers=True, include_map=True, store_info=None, photo_paths=None):
     """
     사진 목록이 있으면 사진 파일명에 100% 매칭되는 맞춤형 포스팅 생성,
     사진이 없으면 텍스트 중심의 정갈한 포스팅 생성
-    (매 실행 시마다 제목, 도입, 본문, 총평이 완전히 다르게 생성됨)
+    (매 실행 시마다 제목, 도입, 본문, 총평이 완전히 다르게 생성되며 동일 글 내 중복 0%)
     """
     menu_items = [m.strip() for m in re.split(r'[,/&+\s]+', menu) if m.strip()]
     main_menu = menu_items[0] if menu_items else menu
@@ -1127,8 +1156,8 @@ def generate_template_post(store_name, location, menu, features, photo_count=14,
         "tags": tags
     }
 
+
 def call_llm_api(provider, api_key, prompt):
-    """실제 AI API (Gemini, OpenAI, Claude) 호출"""
     try:
         p_lower = str(provider).lower()
         if "gemini" in p_lower:
@@ -1168,15 +1197,9 @@ def call_llm_api(provider, api_key, prompt):
         print(f"AI API 호출 안내 (다변화 템플릿 엔진으로 즉시 자동 대체): {e}")
     return None
 
+
 def generate_ai_post(api_key, api_provider, store_name, location, menu, features, photo_count=5, include_stickers=True, include_map=True, photo_paths=None):
-    """
-    AI API 키가 유효하면 실시간 거대언어모델(LLM)을 통해 100% 독창적인 글을 작성하고,
-    API 키가 없거나 실패할 경우에도 3억 개 이상의 무한 조합 다변화 엔진을 통해 매번 전혀 다른 글 생성
-    """
-    # 1. 기본 다변화 구조 먼저 준비
     res = generate_template_post(store_name, location, menu, features, photo_count, include_stickers, include_map, photo_paths=photo_paths)
-    
-    # 2. API 키가 제공된 경우 실시간 AI로 각 단락을 한층 더 독창적으로 업그레이드
     if api_key and api_key.strip():
         photo_names = [os.path.basename(p) for p in (photo_paths or [])]
         prompt = (

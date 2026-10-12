@@ -640,6 +640,9 @@ class NaverBlogApp(tk.Tk):
         threading.Thread(target=task, daemon=True).start()
 
     def generate_current_post(self):
+        import importlib
+        importlib.reload(generator)
+
         store = self.entry_store.get().strip()
         location = self.entry_location.get().strip()
         menu = self.entry_menu.get().strip()
@@ -764,18 +767,10 @@ class NaverBlogApp(tk.Tk):
 
                 # 3단계: 장문 포스팅 구성 (지도/매장정보 본문 최상단, 올린 사진과 100% 매칭, 스티커, 가운데정렬)
                 self.log("📝 [3단계] 올리신 사진과 100% 어울리는 맞춤형 포스팅 본문(했어요! 어조) 구성 중...")
-                data = generator.generate_template_post(
-                    store_name=store,
-                    location=location,
-                    menu=menu,
-                    features=features,
-                    photo_count=len(self.photo_paths),
-                    include_stickers=self.var_sticker.get(),
-                    include_map=self.var_map.get(),
-                    store_info=self.store_info,
-                    photo_paths=self.photo_paths
-                )
-                self.generated_data = data
+                data = self.generate_current_post()
+                if not data:
+                    self.btn_start.config(state="normal", text="🚀 네이버 블로그에 바로 작성하기")
+                    return
 
                 # [사용자 요청] 작성한 식당은 히스토리에 자동 추가 (다음 추천에서 영구 제외)
                 history_manager.add_written_store(store, location, menu)
