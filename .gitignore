@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.class
+
+# Naver Login Session & Chrome Profile (보안: 개인 로그인 쿠키 및 세션 절대 커밋 금지!)
+naver_profile/
+
+# 크롤링 다운로드 임시 사진 및 로그
+downloaded_photos/
+*.log
+
+# 작성 이력 (개인 로컬 저장)
+written_history.json
+
+# 가상환경
+venv/
+env/
+.venv/
+
+# 환경 변수 및 개인 API 키
+.env
+*.env
+
+# OS 캐시 및 에디터 설정
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
