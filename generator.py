@@ -73,8 +73,9 @@ def parse_photo_info(filepath):
     # 10. 젓가락으로 든 한 점 / 클로즈업 먹방 액션
     elif any(k in clean_lower for k in ["들고있는", "들고있는거", "집은", "젓가락", "한점", "한입", "숟가락", "집어든"]):
         cat = "dish_lifting"
-    # 11. 토핑 / 건더기 / 알 / 곤이 디테일
-    elif any(k in clean_lower for k in ["알", "곤이", "이리", "토핑", "고명", "건더기"]) and not any(w in clean_lower for w in ["탕", "찌개", "전골", "국물"]):
+    # 11. 토핑 / 건더기 / 알 / 곤이 디테일 (단, '알곤이칼국수', '알탕' 등 요리명 자체는 dish로 분류)
+    elif (any(clean_lower.endswith(k) for k in ["알", "곤이", "이리", "토핑", "고명", "건더기"]) or
+          any(k in clean_lower for k in ["알 토핑", "곤이 토핑", "알추가", "곤이추가", "알곤이 알", "알곤이칼국수 알", "알곤이 고명"])) and not clean_lower.endswith(("칼국수", "탕", "찌개", "전골", "찜", "국밥")):
         cat = "topping_detail"
     # 12. 국물 / 육수 (음식의 국물 부위)
     elif any(k in clean_lower for k in ["국물", "육수", "소고기뭇국", "뭇국", "무국", "기본국", "서비스국", "장국", "된장국", "미역국"]):
@@ -411,17 +412,31 @@ def generate_dynamic_outro(store_name, location, menu):
     return random.choice(outros)
 
 
-def pick_unique_variation(variations, used_set):
+def pick_unique_variation(variations, used_set, key_prefix=""):
     """
-    동일한 포스팅 내에서 절대 같은 문장이 중복 선택되지 않도록 보장
+    동일한 포스팅 내에서 절대 같은 문장 또는 헤더 패턴이 중복 선택되지 않도록 보장
     """
-    candidates = [v for v in variations if v[0] not in used_set and v[1] not in used_set]
+    candidates = []
+    for idx, v in enumerate(variations):
+        # 헤더의 핵심 패턴 추출 (숫자, clean_name을 제외한 수식어구)
+        h_core = re.sub(r'^[^\.\!]+[\.\!]\s*', '', v[0])
+        h_core = re.sub(r'[0-9\s_\-\.\(\)\[\]]', '', h_core)
+        k = f"{key_prefix}_{idx}" if key_prefix else h_core
+        if k not in used_set and h_core not in used_set and v[0] not in used_set and v[1] not in used_set:
+            candidates.append((k, h_core, v))
+
     if not candidates:
-        candidates = variations
-    chosen = random.choice(candidates)
-    used_set.add(chosen[0])
-    used_set.add(chosen[1])
-    return chosen
+        chosen_k, chosen_core, chosen_v = "", "", random.choice(variations)
+    else:
+        chosen_k, chosen_core, chosen_v = random.choice(candidates)
+        if chosen_k:
+            used_set.add(chosen_k)
+        if chosen_core:
+            used_set.add(chosen_core)
+
+    used_set.add(chosen_v[0])
+    used_set.add(chosen_v[1])
+    return chosen_v
 
 
 def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location, main_menu, count, context):
