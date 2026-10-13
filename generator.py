@@ -447,31 +447,36 @@ def generate_dynamic_outro(store_name, location, menu):
     return random.choice(outros)
 
 
-def pick_unique_variation(variations, used_set, key_prefix=""):
+def pick_unique_variation(variations, used_set, key_prefix="tpl", fallback_pool=None):
     """
-    동일한 포스팅 내에서 절대 같은 문장 또는 헤더 패턴이 중복 선택되지 않도록 보장
+    동일한 포스팅 내에서 절대 같은 템플릿 인덱스나 서사가 중복 선택되지 않도록 100% 보장
     """
-    candidates = []
-    for idx, v in enumerate(variations):
-        # 헤더의 핵심 패턴 추출 (숫자, clean_name을 제외한 수식어구)
-        h_core = re.sub(r'^[^\.\!]+[\.\!]\s*', '', v[0])
-        h_core = re.sub(r'[0-9\s_\-\.\(\)\[\]]', '', h_core)
-        k = f"{key_prefix}_{idx}" if key_prefix else h_core
-        if k not in used_set and h_core not in used_set and v[0] not in used_set and v[1] not in used_set:
-            candidates.append((k, h_core, v))
+    available = []
+    for idx, item in enumerate(variations):
+        tpl_key = f"{key_prefix}_{idx}"
+        if tpl_key not in used_set:
+            available.append((idx, tpl_key, item))
 
-    if not candidates:
-        chosen_k, chosen_core, chosen_v = "", "", random.choice(variations)
-    else:
-        chosen_k, chosen_core, chosen_v = random.choice(candidates)
-        if chosen_k:
-            used_set.add(chosen_k)
-        if chosen_core:
-            used_set.add(chosen_core)
+    if available:
+        chosen_idx, chosen_key, chosen_item = random.choice(available)
+        used_set.add(chosen_key)
+        return chosen_item
 
-    used_set.add(chosen_v[0])
-    used_set.add(chosen_v[1])
-    return chosen_v
+    # 만약 1차 풀을 모두 소진한 경우 fallback_pool에서 미사용 항목 탐색
+    if fallback_pool:
+        fb_available = []
+        for idx, item in enumerate(fallback_pool):
+            fb_key = f"dish_fallback_{idx}"
+            if fb_key not in used_set:
+                fb_available.append((idx, fb_key, item))
+        if fb_available:
+            chosen_idx, chosen_key, chosen_item = random.choice(fb_available)
+            used_set.add(chosen_key)
+            return chosen_item
+
+    # 극단적인 경우 랜덤 선택
+    chosen_idx = random.randint(0, len(variations) - 1)
+    return variations[chosen_idx]
 
 
 def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location, main_menu, count, context):
@@ -505,9 +510,21 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"드디어 도착한 오늘의 목적지, {store_name} {clean_name} 입구 앞이에요! 🚪✨\n\n"
                 f"간판부터 풍겨오는 범상치 않은 내공에 지나가는 분들도 한 번씩 발걸음을 멈추고 쳐다보더라고요.\n\n"
                 f"기분 좋은 설렘을 안고 설레는 마음으로 매장 안으로 발걸음을 옮겼답니다 👍"
+            ),
+            (
+                f"🏙️ {step_num}. 골목의 랜드마크! 감각적인 {store_name} {clean_name}!",
+                f"주변 거리와 멋스럽게 어우러져 시선을 사로잡은 {clean_name} 사진이에요! 📸\n\n"
+                f"외관부터 느껴지는 힙하고 따뜻한 감성 덕분에 들어가기 전부터 인생샷 스팟으로 딱이었는데요.\n\n"
+                f"웨이팅하며 외관을 둘러보는 동안에도 지루할 틈 없이 기대가 가득했답니다 ✨"
+            ),
+            (
+                f"🏷️ {step_num}. 지나가는 발걸음도 멈추게 하는 {clean_name} 전경!",
+                f"세련된 간판 디자인과 외관 익스테리어가 돋보이는 {clean_name} 모습이에요! 🚪\n\n"
+                f"입구 쪽에 걸린 안내와 분위기가 매장의 개성을 한눈에 보여주어 더욱 흥미로웠는데요.\n\n"
+                f"설레는 마음으로 문을 열고 매장 안쪽으로 한 걸음 들어섰답니다 💖"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="exterior")
         caption = f"{location} {store_name} {clean_name}{pair_suffix}"
 
     # 2. 입구 포토존 / 마스코트
@@ -529,9 +546,15 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"✨ {step_num}. 발걸음을 멈추게 만든 감성 스팟! {display_name}!",
                 f"골목을 지나가던 사람들도 한 번씩 멈춰 서서 구경하게 만드는 {clean_name} 전경이에요! 📸\n\n"
                 f"동화 속에 들어온 듯 아늑하고 따뜻한 감성이 물씬 묻어나서 매장에 들어서는 순간부터 힐링이 시작되었답니다 🥰"
+            ),
+            (
+                f"🎀 {step_num}. 놓칠 수 없는 핫플 인증! 사랑스러운 {display_name} 코너!",
+                f"매장에 들어서자마자 반갑게 맞이해 준 러블리한 {clean_name} 모습이에요! 🎀\n\n"
+                f"보는 것만으로도 미소가 번지는 귀여운 조형물 덕분에 기분 좋게 방문 인증샷을 남길 수 있었는데요.\n\n"
+                f"작은 디테일까지 정성스레 꾸며놓으신 센스에 절로 감탄이 나왔답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="photo_zone")
         caption = f"{clean_name} 포토존{pair_suffix}"
 
     # 3. 웨이팅
@@ -550,7 +573,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"기다림마저 맛있는 음식을 만나기 위한 행복한 워밍업처럼 느껴졌답니다 💖"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="waiting")
         caption = f"{clean_name} 현장 대기{pair_suffix}"
 
     # 4. 맛집 인증 (미쉐린, 블루리본)
@@ -569,7 +592,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"오랜 세월 동안 변함없는 맛을 지켜온 사장님의 자부심과 뚝심이 고스란히 묻어나는 순간이었답니다 ✨"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="award")
         caption = f"{store_name} {clean_name}{pair_suffix}"
 
     # 5. 실내 인테리어 / 분위기
@@ -588,7 +611,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"식사하는 손님들을 배려한 차분한 공기 덕분에 대접받는 듯한 기분 좋은 여유를 즐길 수 있었답니다 🛋️"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="interior")
         caption = f"{store_name} 아늑한 {display_name}{pair_suffix}"
 
     # 6. 주문 카운터 및 픽업대
@@ -607,7 +630,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"매장 곳곳에 묻어나는 섬세한 배려에 절로 미소가 지어졌답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="counter")
         caption = f"{store_name} {display_name}{pair_suffix}"
 
     # 7. 실내 좌석 / 테이블
@@ -626,7 +649,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"데이트는 물론이고 가족이나 소중한 지인들과의 모임 자리로도 손색이 없겠더라고요 💖"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="seating")
         caption = f"{store_name} 편안한 {display_name}{pair_suffix}"
 
     # 8. 셀프존 및 셀프바 코너
@@ -645,7 +668,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"머무는 내내 부족함 없이 편안하게 즐길 수 있도록 도와준 고마운 코너였답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="selfbar")
         caption = f"깔끔하고 쾌적한 {display_name}{pair_suffix}"
 
     # 9. 화장실 및 매장 편의시설
@@ -664,7 +687,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"핸드워시와 페이퍼타월까지 빈틈없이 갖춰져 있어 마지막까지 대만족이었답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="facility")
         caption = f"쾌적하고 청결한 {display_name}{pair_suffix}"
 
     # 6. 매장 이용안내문 / 수칙
@@ -683,7 +706,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"음식이 나오면 이 순서대로 꼭 따라 해봐야겠다고 일행들과 다짐했답니다 😋"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="notice")
         caption = f"{clean_name} 안내사항{pair_suffix}"
 
     # 7. 무료 공기밥 / 셀프바 코너
@@ -702,7 +725,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"추가 요금 부담 없이 든든한 한 끼를 완성해 준 최고의 꿀팁 코너였답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="service_rice")
         caption = f"따뜻한 인심의 {clean_name}{pair_suffix}"
 
     # 8. 메뉴판
@@ -721,7 +744,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"시그니처 메뉴부터 곁들임 사이드까지 일행 모두 만족할 수 있는 알찬 라인업으로 푸짐하게 선택했답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="menu")
         caption = f"{store_name} {clean_name}{pair_suffix}"
 
     # 베이커리 / 디저트 진열 쇼케이스 (메뉴1~메뉴8 등)
@@ -758,7 +781,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"오늘 이곳에 찾아오길 정말 잘했다며 일행들과 환호성을 질렀답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="showcase")
         caption = f"화려하고 먹음직스러운 베이커리 쇼케이스{pair_suffix}"
 
     # 한상차림 / 상차림 / 밑반찬
@@ -793,7 +816,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                     f"부족함 없이 넉넉하게 챙겨주시는 인심 덕분에 식사 내내 곁들임 찬의 매력을 톡톡히 누렸답니다 😋"
                 )
             ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="sides")
         caption = f"{clean_name} 세팅{pair_suffix}"
 
     # 10. 젓가락으로 든 한 점 / 먹방 액션
@@ -812,7 +835,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"왜 이곳의 필수 시그니처로 손꼽히는지 단 한 입만으로도 완벽하게 납득이 되었답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="dish_lifting")
         caption = f"먹음직스럽게 집어 든 {clean_name}{pair_suffix}"
 
     # 11. 토핑 / 건더기 / 알 / 곤이 디테일
@@ -831,7 +854,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"골라 먹어도 먹어도 줄지 않을 만큼 혜자로운 양에 사장님의 아낌없는 인심을 체감했답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="topping_detail")
         caption = f"신선하고 푸짐한 {clean_name}{pair_suffix}"
 
     # 12. 국물 / 육수
@@ -850,7 +873,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"숟가락으로 떠먹을 때마다 속이 따뜻해지며 감탄사가 절로 새어 나왔답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="soup_side")
         caption = f"깊고 진한 {clean_name}{pair_suffix}"
 
     # 13. 면발 / 면치기
@@ -869,7 +892,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"마지막 한 가닥까지 남김없이 건져먹을 정도로 완벽한 완성도를 자랑했답니다 💖"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="noodle_lifting")
         caption = f"쫄깃탱글한 {clean_name}{pair_suffix}"
 
     # 14. 완식 및 영수증 인증
@@ -904,7 +927,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                     f"문을 나서는 순간까지도 입안에 맴도는 기분 좋은 여운에 벌써부터 다음 재방문 일정을 잡고 싶어졌답니다 🍽️"
                 )
             ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="finish")
         caption = f"{clean_name} 마무리{pair_suffix}"
 
     # 15. 꿀조합 / 비빈 모습 / 쌈
@@ -923,7 +946,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"마지막 한 점까지 이 조합으로 알차게 즐기며 폭풍 먹방을 이어갔답니다 👍"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="combo")
         caption = f"맛있는 {clean_name}{pair_suffix}"
 
     # 16. 사이드 메뉴
@@ -942,7 +965,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"함께 곁들이니 물릴 틈 없이 식사의 텐션을 끝까지 끌어올려 주었답니다 😋"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="sub_dish")
         caption = f"푸짐하고 맛깔스러운 {clean_name}{pair_suffix}"
 
     # 17. 디테일
@@ -961,7 +984,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"먹기 아까울 정도로 아름다운 비주얼에 연신 감탄하며 셔터를 눌렀답니다 😋"
             )
         ]
-        header, text = pick_unique_variation(variations, used_set)
+        header, text = pick_unique_variation(variations, used_set, key_prefix="detail")
         caption = f"{clean_name} 디테일{pair_suffix}"
 
     # 18. 메인 요리 (dish) - 세부 유형별 & 순서별 분기
@@ -970,8 +993,75 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
         is_subsequent = clean_name in seen_dishes or len(seen_dishes) > 0
         seen_dishes.add(clean_name)
 
+        # 일반 공통 요리 10종 풀
+        dish_general_variations = [
+            (
+                f"✨ {step_num}. 눈길을 사로잡는 정갈한 담음새! {clean_name}!",
+                f"테이블에 오르자마자 화려하고 깔끔한 플레이팅으로 시선을 끈 {clean_name} 모습이에요! 🍽️✨\n\n"
+                f"정성껏 차려낸 모습에서 주방의 깊은 내공과 요리에 대한 진심 어린 정성이 고스란히 느껴졌는데요.\n\n"
+                f"눈으로 먼저 맛보는 즐거움이 가득해 일행 모두 감탄하며 사진을 남겼답니다 💖"
+            ),
+            (
+                f"😋 {step_num}. 코끝을 맴도는 식욕 자극 풍미! {clean_name} 등장!",
+                f"등장하자마자 군침 도는 고소하고 향긋한 냄새로 주변을 가득 채운 {clean_name} 사진이에요! 🥢\n\n"
+                f"식욕을 돋우는 은은한 향미에 참지 못하고 얼른 한 입 맛보았는데요.\n\n"
+                f"좋은 재료에서 우러나온 담백하고 진한 풍미가 입안 가득 감돌며 기분 좋은 미소를 짓게 만들었답니다 👍"
+            ),
+            (
+                f"🥢 {step_num}. 다채로운 식감과 환상적인 조화! {clean_name}!",
+                f"식재료 본연의 탄력과 부드러움이 살아있는 매력 만점 {clean_name} 비주얼이에요! 😋✨\n\n"
+                f"씹을수록 배어 나오는 고소한 감칠맛과 밸런스 좋은 소스의 조화가 그야말로 일품이었는데요.\n\n"
+                f"자극적이지 않으면서도 자꾸만 손이 가게 만드는 중독성 넘치는 맛이었답니다 💖"
+            ),
+            (
+                f"👑 {step_num}. 소문난 인기 실감! 기대 이상이었던 {clean_name}!",
+                f"왜 많은 분들이 추천하는지 첫 입부터 단번에 이해되었던 {clean_name} 컷이에요! 🍽️\n\n"
+                f"재료 하나하나의 신선도가 최상급이라 잡내 없이 깔끔하게 떨어지는 뒷맛이 인상적이었는데요.\n\n"
+                f"호불호 없이 남녀노소 누구나 극찬할 만한 완성도 높은 퀄리티를 자랑했답니다 👍"
+            ),
+            (
+                f"🌿 {step_num}. 신선함이 살아있는 웰빙의 맛! {clean_name}!",
+                f"푸릇푸릇한 신선도와 깔끔한 맛의 정석을 보여준 {clean_name} 모습이에요! 🌿✨\n\n"
+                f"텁텁함 없이 개운하고 담백한 양념이 어우러져 질릴 틈 없이 식사를 즐길 수 있었는데요.\n\n"
+                f"속이 편안하면서도 든든한 포만감을 안겨주는 힐링 메뉴였답니다 🥰"
+            ),
+            (
+                f"🔥 {step_num}. 갓 만들어 따끈한 온기가 가득한 {clean_name}!",
+                f"주문 즉시 정성껏 조리되어 모락모락 김과 함께 등장한 {clean_name} 사진이에요! 🥘\n\n"
+                f"따뜻한 온기 덕분에 재료의 풍미가 배가되어 마지막 한 입까지 온전한 맛을 누릴 수 있었는데요.\n\n"
+                f"식사하는 내내 테이블의 활기를 더해준 고마운 요리였답니다 💖"
+            ),
+            (
+                f"💡 {step_num}. 손맛과 정성이 빚어낸 역대급 매력, {clean_name}!",
+                f"정갈하고 푸짐하게 채워져 나온 먹음직스러운 {clean_name} 비주얼이에요! 🥢\n\n"
+                f"과하지 않은 알맞은 간과 풍부한 식감이 어우러져 숟가락과 젓가락을 내려놓을 틈이 없었는데요.\n\n"
+                f"다음에 재방문해도 꼭 다시 주문하고 싶은 최애 메뉴로 등극했답니다 👍"
+            ),
+            (
+                f"📸 {step_num}. 오감을 만족시켜 준 특급 퀄리티! {clean_name}!",
+                f"카메라 앵글에 다 담기지 않을 만큼 먹음직스러운 비주얼의 {clean_name} 컷이에요! 📸✨\n\n"
+                f"알찬 구성과 남다른 볼륨감 덕분에 든든하게 배를 채울 수 있었는데요.\n\n"
+                f"좋은 식재료를 아낌없이 담아주신 사장님의 넉넉한 인심에 깊은 감동을 받았답니다 💖"
+            ),
+            (
+                f"⭐ {step_num}. 미식의 즐거움을 제대로 만끽한 {clean_name}!",
+                f"한 젓가락 맛볼 때마다 감탄사가 절로 흘러나왔던 {clean_name} 사진이에요! 😋\n\n"
+                f"식재료 간의 궁합이 완벽해서 입안에서 다채로운 맛의 향연이 펼쳐졌는데요.\n\n"
+                f"오늘 방문을 한층 더 특별하게 만들어 준 감동적인 한 접시였답니다 ✨"
+            ),
+            (
+                f"💖 {step_num}. 잊지 못할 풍미의 여운! 완성도 높은 {clean_name}!",
+                f"사진을 다시 보는 지금도 군침이 고일 만큼 인상 깊었던 {clean_name} 모습이에요! 🍽️\n\n"
+                f"깔끔한 끝 맛과 깊은 여운이 길게 남아 마지막까지 기분 좋은 식사를 완성해 주었는데요.\n\n"
+                f"소중한 지인들과 함께 나누기에 더없이 완벽한 선택이었답니다 👍"
+            )
+        ]
+
+        dish_prefix = "dish_general"
+
         # 베이커리 / 빵 / 디저트
         if any(w in c_lower for w in ["크루아상", "크로와상", "퀸아망", "페이스트리", "빵", "베이커리", "디저트", "케이크", "타르트", "스콘", "휘낭시에", "마들렌", "베이글", "샌드위치", "쿠키", "도넛"]):
+            dish_prefix = "dish_bakery"
             variations = [
                 (
                     f"🥐 {step_num}. 결이 살아있는 겉바속촉의 정석! {clean_name}!",
@@ -984,11 +1074,30 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                     f"영롱한 비주얼을 뽐내며 등장한 감동의 시그니처, {clean_name} 모습이에요! 🧁\n\n"
                     f"아낌없이 들어간 재료와 섬세하게 구워낸 장인의 손맛이 고스란히 느껴졌는데요.\n\n"
                     f"입안 가득 차오르는 부드러운 달콤함에 하루의 피로가 싹 녹아내리는 기분이었답니다 😋"
+                ),
+                (
+                    f"🍰 {step_num}. 비주얼부터 마음을 사로잡은 달콤한 {clean_name}!",
+                    f"눈으로 먼저 맛보게 되는 매력적인 자태의 {clean_name} 컷이에요! 🍰✨\n\n"
+                    f"포크로 한 조각 잘라 맛보니 부드러운 식감과 반죽의 앙상블이 입안에서 사르르 녹아내렸는데요.\n\n"
+                    f"달지 않고 깔끔한 뒷맛 덕분에 물릴 틈 없이 마지막 한 입까지 행복하게 즐겼답니다 👍"
+                ),
+                (
+                    f"🥖 {step_num}. 갓 구워낸 듯 신선한 온기! 고소한 {clean_name}!",
+                    f"은은한 고소함이 코끝을 자극하며 식욕을 돋우어 준 {clean_name} 사진이에요! 🥖\n\n"
+                    f"좋은 밀가루와 고급 버터의 풍미가 씹을수록 깊어져 감탄사가 절로 흘러나왔는데요.\n\n"
+                    f"왜 이곳의 시그니처 베이커리로 불리는지 단 한 조각으로 완벽히 증명해 주었답니다 💖"
+                ),
+                (
+                    f"🧁 {step_num}. 풍성한 텍스처와 감미로운 조화! {clean_name}!",
+                    f"입안 가득 퍼지는 촉촉함과 달콤함이 인상적이었던 {clean_name} 모습이에요! 😋✨\n\n"
+                    f"섬세하게 쌓인 결 사이사이로 스며든 풍미 덕분에 한 입마다 새로운 감동을 선사했는데요.\n\n"
+                    f"함께 곁들인 음료와의 페어링도 찰떡궁합이라 최고의 디저트 타임을 완성해 주었답니다 🥰"
                 )
             ]
 
         # 커피 / 음료
         elif any(w in c_lower for w in ["커피", "라떼", "아메리카노", "에이드", "음료", "밀크티", "말차", "초코"]):
+            dish_prefix = "dish_drink"
             variations = [
                 (
                     f"☕ {step_num}. 디저트와 찰떡궁합! 깊고 향긋한 {clean_name}!",
@@ -1001,11 +1110,24 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                     f"테이블을 청량하게 밝혀준 매력적인 음료, {clean_name} 비주얼이에요! 🥤\n\n"
                     f"과하지 않은 깔끔한 목넘김과 풍부한 향미가 돋보여 마시는 내내 미소가 떠나지 않았는데요.\n\n"
                     f"마지막 한 모금까지 시원하게 들이켜며 완벽한 티타임을 즐겼답니다 👍"
+                ),
+                (
+                    f"🥤 {step_num}. 갈증을 싹 씻어주는 청량한 {clean_name}!",
+                    f"예쁜 잔에 정갈하게 담겨 나온 시원한 {clean_name} 모습이에요! 🍹✨\n\n"
+                    f"한 모금 들이켜자마자 입안 가득 상쾌함이 퍼지며 기분 전환을 확실하게 도와주었는데요.\n\n"
+                    f"향과 맛의 밸런스가 뛰어나 식사 중간중간 입안을 개운하게 리프레시해 주었답니다 😋"
+                ),
+                (
+                    f"✨ {step_num}. 은은하고 깊은 바디감의 매력! {clean_name}!",
+                    f"풍부한 아로마와 깔끔한 맛을 자랑하는 {clean_name} 컷이에요! ☕\n\n"
+                    f"좋은 원두와 신선한 재료를 사용해 텁텁함 없이 목넘김이 부드러운 점이 아주 인상적이었는데요.\n\n"
+                    f"마시는 내내 힐링 그 자체의 여유로움을 선사해 준 고마운 음료였답니다 💖"
                 )
             ]
 
         # 육전 / 파전 / 부침 / 튀김
         elif any(w in c_lower for w in ["육전", "전", "파전", "튀김", "부침개"]):
+            dish_prefix = "dish_jeon"
             if is_subsequent:
                 variations = [
                     (
@@ -1039,6 +1161,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
 
         # 칼국수 / 면 요리
         elif any(w in c_lower for w in ["칼국수", "라면", "국수", "우동", "면"]):
+            dish_prefix = "dish_noodle"
             if "동죽" in c_lower or "조개" in c_lower or "해물" in c_lower:
                 variations = [
                     (
@@ -1102,6 +1225,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
 
         # 육회비빔밥 / 비빔밥 / 덮밥
         elif any(w in c_lower for w in ["비빔밥", "육회", "덮밥", "솥밥"]):
+            dish_prefix = "dish_bibim"
             if any(k in c_lower for k in ["특", "대", "곱배기"]):
                 variations = [
                     (
@@ -1135,6 +1259,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
 
         # 수육 / 전골 / 탕 / 곰탕 / 국밥
         elif any(w in c_lower for w in ["수육", "전골", "곰탕", "국밥", "탕", "찌개"]):
+            dish_prefix = "dish_stew"
             variations = [
                 (
                     f"🍲 {step_num}. 야들야들한 육질과 깊은 육수의 조화, {clean_name}!",
@@ -1147,11 +1272,18 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                     f"테이블 위에서 은은한 온기를 더해준 오늘의 메인, {clean_name} 비주얼이에요! 🥘\n\n"
                     f"부드럽게 익어가는 고기와 진국 육수의 냄새가 코끝을 스치자마자 다들 젓가락을 들고 대기했는데요!\n\n"
                     f"입에 넣는 순간 사르르 녹아내리는 부드러움에 눈이 번쩍 뜨일 만큼 황홀했답니다 👍"
+                ),
+                (
+                    f"🥘 {step_num}. 속 깊은 곳까지 개운하게 채워주는 {clean_name}!",
+                    f"진한 온기와 푸짐한 건더기로 가득 채워진 {clean_name} 한 냄비 모습이에요! 🍲\n\n"
+                    f"재료들이 우러난 국물 한 모금 넘기니 깔끔하면서도 깊은 감칠맛이 속을 편안하게 풀어주었는데요.\n\n"
+                    f"부드러운 고기와 신선한 채소의 밸런스가 뛰어나 식사 내내 숟가락을 놓을 수 없었답니다 💖"
                 )
             ]
 
         # 고기 / 구이 / 삼겹살
         elif any(w in c_lower for w in ["삼겹", "구이", "목살", "갈비", "고기", "한우", "스테이크"]):
+            dish_prefix = "dish_meat"
             variations = [
                 (
                     f"🥩 {step_num}. 지글지글 노릇하게 익어가는 황금빛 {clean_name}!",
@@ -1164,26 +1296,21 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                     f"불판을 가득 채운 영롱한 자태의 {clean_name} 비주얼이에요! 🍽️\n\n"
                     f"선홍빛 육질과 알맞은 지방의 황금비율이 눈을 뗄 수 없게 만들었는데요!\n\n"
                     f"기름진 느끼함 없이 씹을수록 담백하고 진한 감칠맛이 폭발해 순식간에 불판을 비워냈답니다 😋"
+                ),
+                (
+                    f"✨ {step_num}. 씹을수록 감탄 나오는 육향! {clean_name}!",
+                    f"화려한 자태를 뽐내며 먹음직스럽게 익은 {clean_name} 컷이에요! 🥩\n\n"
+                    f"잡내 하나 없이 고소한 본연의 맛이 살아있어 어떤 곁들임 찬과 함께 먹어도 찰떡궁합을 자랑했는데요.\n\n"
+                    f"풍성한 육즙과 부드러운 육질의 매력에 푹 빠져든 행복한 순간이었답니다 👍"
                 )
             ]
 
-        # 일반 요리
+        # 일반 요리 (10종)
         else:
-            variations = [
-                (
-                    f"✨ {step_num}. 감탄이 절로 나오는 비주얼! {clean_name} 등장!",
-                    f"드디어 등장한 오늘의 하이라이트! 사진 속 먹음직스러운 {clean_name} 비주얼 보이시나요? 🍽️✨\n\n"
-                    f"테이블에 놓이자마자 군침 도는 냄새와 푸짐한 담음새에 다들 감탄사를 연발했는데요!\n\n"
-                    f"좋은 식재료를 아낌없이 사용하셔서 한 입 맛볼 때마다 깊은 풍미와 신선한 식감이 그대로 전해졌답니다 😋"
-                ),
-                (
-                    f"🍽️ {step_num}. 오감을 사로잡은 특급 요리, {clean_name}!",
-                    f"사진으로도 전해지는 남다른 아우라의 {clean_name} 모습이에요! 💖\n\n"
-                    f"정성 가득한 플레이팅과 먹음직스러운 빛깔이 먹기 전부터 기대를 한껏 끌어올렸는데요!\n\n"
-                    f"한 점 입에 넣는 순간 퍼지는 풍성한 맛에 찾아온 보람을 제대로 만끽했답니다 👍"
-                )
-            ]
-        header, text = pick_unique_variation(variations, used_set)
+            dish_prefix = "dish_general"
+            variations = dish_general_variations
+
+        header, text = pick_unique_variation(variations, used_set, key_prefix=dish_prefix, fallback_pool=dish_general_variations)
         caption = f"{clean_name}{pair_suffix}"
 
     return header, text, caption
