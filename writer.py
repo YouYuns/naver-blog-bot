@@ -31,6 +31,14 @@ if not os.path.exists(CHROME_PATH):
 
 USER_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "naver_profile"))
 
+_STOP_BROWSER_WAIT = False
+
+def stop_active_browser_session():
+    """진행 중인 브라우저 대기 루프를 즉시 중단하고 프로세스 해제"""
+    global _STOP_BROWSER_WAIT
+    _STOP_BROWSER_WAIT = True
+    unlock_profile()
+
 def unlock_profile():
     """기존에 naver_profile을 물고 있는 브라우저 프로세스 정리"""
     try:
@@ -309,10 +317,13 @@ def handle_image_attach_mode_popup(frame, page, mode="collage", status_callback=
         status_callback(f"사진 레이아웃 팝업 안내: {e}")
     return False
 
-def write_naver_blog(post_data, image_paths=None, auto_save_draft=True, status_callback=print):
+def write_naver_blog(post_data, image_paths=None, auto_save_draft=True, status_callback=print, on_completed=None):
     """
     스마트에디터 ONE에 제목, 본문, 사진, 스티커, 지도를 정확히 분리하여 자동 입력
     """
+    global _STOP_BROWSER_WAIT
+    _STOP_BROWSER_WAIT = False
+
     title = post_data.get("title", "")
     sections = post_data.get("sections", [])
     if image_paths is None:
@@ -658,8 +669,17 @@ def write_naver_blog(post_data, image_paths=None, auto_save_draft=True, status_c
 
         status_callback("🎉 자동 작성이 완료되었습니다! 브라우저 창에서 내용을 확인하고 [발행]을 누르실 수 있습니다.")
         
-        # 확인을 위해 브라우저 유지 (최대 5분)
+        # 글 작성이 끝났으므로 GUI의 '바로 작성하기' 버튼을 즉시 활성화
+        if on_completed:
+            try:
+                on_completed()
+            except Exception:
+                pass
+
+        # 사용자가 브라우저를 확인하고 발행할 수 있도록 유지 (사용자가 새 핫플을 누르거나 창을 닫으면 즉시 종료)
         for _ in range(300):
+            if _STOP_BROWSER_WAIT:
+                break
             time.sleep(1)
             try:
                 if not context.pages or context.pages[0].is_closed():

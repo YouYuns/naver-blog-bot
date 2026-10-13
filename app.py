@@ -362,8 +362,14 @@ class NaverBlogApp(tk.Tk):
                 )
             self.log("📁 [사진 모드 변경] '내 사진 직접 넣기' 모드가 선택되었습니다. 직접 촬영한 사진을 선택하시면 글 흐름에 맞춰 자동 배치됩니다.")
 
+    def reset_start_button(self):
+        """블로그 작성 버튼 활성화 및 문구 원복"""
+        self.btn_start.config(state="normal", text="🚀 네이버 블로그에 바로 작성하기")
+
     def on_reset_new_post(self):
         """새로 만들기 / 입력창 및 사진 초기화"""
+        writer.stop_active_browser_session()
+        self.reset_start_button()
         self.entry_store.delete(0, tk.END)
         self.entry_location.delete(0, tk.END)
         self.entry_menu.delete(0, tk.END)
@@ -379,6 +385,8 @@ class NaverBlogApp(tk.Tk):
 
     def on_generate_random_preset(self):
         """새로운 핫플 맛집 예시 랜덤 자동 생성 (이미 작성한 식당은 자동 제외)"""
+        writer.stop_active_browser_session()
+        self.reset_start_button()
         current_store = self.entry_store.get().strip()
         candidates = history_manager.get_unwritten_hot_candidates(current_store)
         stats = history_manager.get_history_stats()
@@ -489,6 +497,7 @@ class NaverBlogApp(tk.Tk):
 
     def apply_preset(self, store, loc, menu, feat):
         """인기 맛집 빠른 채우기"""
+        self.reset_start_button()
         self.entry_store.delete(0, tk.END)
         self.entry_store.insert(0, store)
         self.entry_location.delete(0, tk.END)
@@ -783,7 +792,8 @@ class NaverBlogApp(tk.Tk):
                     post_data=data,
                     image_paths=self.photo_paths,
                     auto_save_draft=True,
-                    status_callback=self.log
+                    status_callback=self.log,
+                    on_completed=lambda: self.after(0, self.reset_start_button)
                 )
             except Exception as e:
                 self.log(f"❌ 작성 중 오류 발생: {e}")
