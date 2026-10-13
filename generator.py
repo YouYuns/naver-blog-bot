@@ -25,9 +25,19 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 
 
 def natural_sort_key(filepath):
-    """자연스러운 숫자 정렬 (1, 2, ..., 10 순서 보장)"""
+    """자연스러운 숫자 정렬 (1, 2, ..., 10 순서 보장, 무번호가 1번보다 먼저)"""
     filename = os.path.basename(filepath)
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', filename)]
+    name, ext = os.path.splitext(filename)
+    parts = re.split(r'(\d+)', name)
+    result = []
+    for p in parts:
+        if not p:
+            continue
+        if p.isdigit():
+            result.append((1, int(p)))
+        else:
+            result.append((0, p.lower()))
+    return result
 
 
 def parse_photo_info(filepath):
@@ -43,56 +53,68 @@ def parse_photo_info(filepath):
 
     clean_lower = clean_name.lower()
 
-    # 1. 외관 / 간판
-    if any(k in clean_lower for k in ["외관", "간판", "입구", "도착", "외부", "건물", "가게전경", "파사드"]):
+    # 1. 화장실 및 매장 편의시설
+    if any(k in clean_lower for k in ["화장실", "토일렛", "toilet", "restroom", "wc", "세면대", "파우더룸"]):
+        cat = "facility"
+    # 2. 주문 카운터 및 픽업대
+    elif any(k in clean_lower for k in ["카운터", "계산대", "오더", "주문대", "포스", "픽업"]):
+        cat = "counter"
+    # 3. 셀프존 및 셀프바 코너
+    elif any(k in clean_lower for k in ["셀프존", "셀프바", "셀프코너", "셀프", "공기밥무료", "무료공기밥", "밥무료", "공기밥", "밥솥", "무료리필", "밥무한", "무한리필"]):
+        cat = "selfbar"
+    # 4. 입구 포토존 및 마스코트 조형물
+    elif any(k in clean_lower for k in ["곰돌이", "포토존", "마스코트", "조형물", "입구꾸며져", "꾸며져", "인형"]) and not any(w in clean_lower for w in ["탕", "찌개"]):
+        cat = "photo_zone"
+    # 5. 베이커리 / 디저트 / 메뉴 쇼케이스 및 진열대 (메뉴1, 메뉴2... 또는 쇼케이스)
+    elif any(k in clean_lower for k in ["쇼케이스", "진열대", "진열", "베이커리", "구움과자"]) or re.search(r'메뉴\s*\d+', clean_lower):
+        cat = "showcase"
+    # 6. 메뉴판 및 가격표 (순수 메뉴판)
+    elif any(k in clean_lower for k in ["메뉴판", "차림표", "빌지", "가격표", "주문서"]) or (clean_lower == "메뉴" or (clean_lower.endswith("메뉴") and "1인1메뉴" not in clean_lower and not re.search(r'\d', clean_lower))):
+        cat = "menu"
+    # 7. 외관 및 간판
+    elif any(k in clean_lower for k in ["외관", "간판", "입구", "도착", "외부", "건물", "가게전경", "파사드", "입간판", "배너", "현수막"]):
         cat = "exterior"
-    # 2. 웨이팅
+    # 8. 웨이팅
     elif any(k in clean_lower for k in ["웨이팅", "대기", "캐치테이블", "테이블링", "줄서기", "줄서는", "대기표", "순번"]):
         cat = "waiting"
-    # 3. 맛집 인증 (블루리본, 미쉐린 등)
+    # 9. 맛집 인증 (블루리본, 미쉐린 등)
     elif any(k in clean_lower for k in ["미쉐린", "미슐랭", "블루리본", "상장", "상패", "인증", "명패", "선정", "팻말", "방송", "티비", "tv"]):
         cat = "award"
-    # 4. 무료 공기밥 / 셀프바 코너
-    elif any(k in clean_lower for k in ["공기밥무료", "무료공기밥", "밥무료", "공기밥", "셀프바", "셀프코너", "밥솥", "무료리필", "밥무한", "무한리필"]):
-        cat = "service_rice"
-    # 5. 매장 이용안내문 / 규칙
-    elif any(k in clean_lower for k in ["식사시간제한", "식사시간", "시간제한", "1인1메뉴", "1인 1메뉴", "이용안내", "안내문", "주의사항", "이용수칙", "이용시간", "주문안내", "규칙", "에티켓"]):
-        cat = "notice"
-    # 6. 메뉴판
-    elif any(k in clean_lower for k in ["메뉴판", "차림표", "빌지", "가격표", "주문서"]) or (clean_lower.endswith("메뉴") and "1인1메뉴" not in clean_lower):
-        cat = "menu"
-    # 7. 실내 좌석 / 테이블
-    elif any(k in clean_lower for k in ["실내 테이블", "실내테이블", "테이블", "좌석", "자리", "의자"]):
+    # 10. 실내 테이블 및 좌석
+    elif any(k in clean_lower for k in ["실내 테이블", "실내테이블", "테이블", "좌석", "자리", "의자", "창가자리"]):
         cat = "seating"
-    # 8. 실내 전체 인테리어 / 분위기
+    # 11. 실내 전체 인테리어 및 감성
     elif any(k in clean_lower for k in ["내부", "인테리어", "홀", "분위기", "룸", "실내", "조명"]):
         cat = "interior"
-    # 9. 한상차림 / 상차림 / 밑반찬
+    # 12. 매장 이용안내문
+    elif any(k in clean_lower for k in ["식사시간제한", "식사시간", "시간제한", "1인1메뉴", "1인 1메뉴", "이용안내", "안내문", "주의사항", "이용수칙", "이용시간", "주문안내", "규칙", "에티켓"]):
+        cat = "notice"
+    # 13. 한상차림 및 밑반찬
     elif any(k in clean_lower for k in ["한상차림", "상차림", "밑반찬", "반찬", "기본찬", "세팅", "스끼", "깍두기", "김치", "무침", "샐러드", "양념장"]):
         cat = "sides"
-    # 10. 젓가락으로 든 한 점 / 클로즈업 먹방 액션
+    # 14. 젓가락으로 든 한 점 (먹방 액션)
     elif any(k in clean_lower for k in ["들고있는", "들고있는거", "집은", "젓가락", "한점", "한입", "숟가락", "집어든"]):
         cat = "dish_lifting"
-    # 11. 토핑 / 건더기 / 알 / 곤이 디테일 (단, '알곤이칼국수', '알탕' 등 요리명 자체는 dish로 분류)
+    # 15. 토핑 / 건더기 / 알 / 곤이 디테일 (단, 요리명 자체는 dish로 분류)
     elif (any(clean_lower.endswith(k) for k in ["알", "곤이", "이리", "토핑", "고명", "건더기"]) or
           any(k in clean_lower for k in ["알 토핑", "곤이 토핑", "알추가", "곤이추가", "알곤이 알", "알곤이칼국수 알", "알곤이 고명"])) and not clean_lower.endswith(("칼국수", "탕", "찌개", "전골", "찜", "국밥")):
         cat = "topping_detail"
-    # 12. 국물 / 육수 (음식의 국물 부위)
+    # 16. 국물 및 육수
     elif any(k in clean_lower for k in ["국물", "육수", "소고기뭇국", "뭇국", "무국", "기본국", "서비스국", "장국", "된장국", "미역국"]):
         cat = "soup_side"
-    # 13. 면발 / 면치기
+    # 17. 면발
     elif any(k in clean_lower for k in ["면발", "면치기", "가락", "국수면"]):
         cat = "noodle_lifting"
-    # 14. 완식 및 영수증 내돈내산 인증
+    # 18. 완식 및 영수증 내돈내산 인증
     elif any(k in clean_lower for k in ["완식", "마무리", "빈그릇", "빈접시", "클리어", "다먹음", "계산", "영수증"]):
         cat = "finish"
-    # 15. 꿀조합 / 비빈 모습 / 쌈
+    # 19. 꿀조합 및 쌈
     elif any(k in clean_lower for k in ["비빈", "비벼", "비비는", "비벼진", "비벼먹", "섞은", "섞인", "꿀조합", "조합", "찍먹", "김쌈", "쌈", "싸먹", "말아", "한숟가락", "한숟갈"]):
         cat = "combo"
-    # 16. 일반 디테일
+    # 20. 일반 디테일
     elif any(k in clean_lower for k in ["디테일", "근접", "클로즈업", "단면", "확대", "윤기"]):
         cat = "detail"
-    # 17. 사이드 메뉴 / 주류
+    # 21. 사이드 메뉴
     elif any(k in clean_lower for k in ["사이드", "서브", "라면", "찌개", "볶음밥", "냉면", "음료", "주류", "맥주", "소주", "하이볼", "사리", "추가", "주먹밥", "계란찜", "만두"]):
         cat = "sub_dish"
     else:
@@ -110,28 +132,38 @@ def get_journey_priority(clean_name, category):
     """
     맛집 방문부터 퇴장까지의 실제 고객 경험 여정 순서 (10 ~ 110)
     """
-    c = clean_name.lower()
-    if category == "exterior" or any(k in c for k in ['외관', '간판', '입구', '도착', '외부', '건물', '가게전경']):
+    if category == "exterior":
         return 10
-    if category == "waiting" or any(k in c for k in ['웨이팅', '대기', '캐치테이블', '테이블링', '줄서기', '대기표']):
+    if category == "photo_zone":
+        return 15
+    if category == "waiting":
         return 20
-    if category == "award" or any(k in c for k in ['미쉐린', '미슐랭', '블루리본', '상패', '인증']):
+    if category == "award":
         return 25
-    if category == "interior" or any(k in c for k in ['내부', '인테리어', '홀', '분위기', '실내']):
+    if category == "interior":
         return 30
-    if category == "seating" or any(k in c for k in ['실내 테이블', '테이블', '좌석', '자리']):
-        return 35
-    if category == "notice" or any(k in c for k in ['식사시간제한', '1인1메뉴', '이용안내', '안내문']):
+    if category == "counter":
+        return 32
+    if category == "seating":
+        return 34
+    if category == "selfbar":
+        return 36
+    if category == "facility":
+        return 38
+    if category == "notice":
         return 40
-    if category == "menu" or any(k in c for k in ['메뉴판', '차림표', '빌지', '가격표']):
+    if category == "menu":
         return 50
-    if category == "service_rice" or any(k in c for k in ['공기밥무료', '무료공기밥', '셀프바', '밥솥']):
+    if category == "showcase":
         return 55
-    if category == "sides" or any(k in c for k in ['한상차림', '상차림', '밑반찬', '반찬', '기본찬']):
+    if category == "service_rice":
+        return 58
+    if category == "sides":
         return 60
-    if category == "soup_side" and not any(k in c for k in ['알곤이', '칼국수', '전골']):
+    if category == "soup_side":
         return 65
     if category == "dish":
+        c = clean_name.lower()
         if any(k in c for k in ['보통', '일반']):
             return 71
         if any(k in c for k in ['특', '대', '곱배기']):
@@ -139,8 +171,6 @@ def get_journey_priority(clean_name, category):
         return 75
     if category == "topping_detail":
         return 80
-    if category == "soup_side":
-        return 82
     if category == "noodle_lifting":
         return 84
     if category == "dish_lifting":
@@ -161,22 +191,27 @@ def smart_photo_sort_key(filepath):
     raw_name = os.path.splitext(filename)[0]
     m = re.match(r'^(\d+)', raw_name)
     if m:
-        return (0, int(m.group(1)), filename.lower())
+        return (0, int(m.group(1)), natural_sort_key(filename))
     else:
         info = parse_photo_info(filepath)
         p = get_journey_priority(info['clean_name'], info['category'])
-        return (1, p, filename.lower())
+        return (1, p, natural_sort_key(filename))
 
 
 CATEGORY_KOR_NAMES = {
     "exterior": "외관 및 간판",
+    "photo_zone": "입구 포토존 및 마스코트",
     "waiting": "웨이팅 및 현장 대기",
     "award": "미쉐린/블루리본 인증 상패",
     "interior": "실내 인테리어 및 감성",
+    "counter": "주문 카운터 및 픽업대",
     "seating": "실내 테이블 및 좌석",
+    "selfbar": "셀프존 및 편의 코너",
+    "facility": "매장 편의시설 및 화장실",
     "notice": "매장 이용수칙 및 안내",
-    "service_rice": "공기밥 무료/셀프바 코너",
     "menu": "메뉴판 및 가격 정보",
+    "showcase": "베이커리/디저트 진열 쇼케이스",
+    "service_rice": "공기밥 무료/셀프바 코너",
     "sides": "한상차림 및 밑반찬",
     "dish": "대표 메인 요리",
     "topping_detail": "토핑 및 식재료 디테일",
@@ -448,6 +483,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
     pair_suffix = " (가로 나란히)" if is_pair else ""
     used_set = context.setdefault("used_templates", set())
     seen_dishes = context.setdefault("seen_dishes", set())
+    display_name = re.sub(r'\s*\d+$', '', clean_name).strip() or clean_name
 
     # 1. 외관
     if cat == "exterior":
@@ -474,7 +510,31 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
         header, text = pick_unique_variation(variations, used_set)
         caption = f"{location} {store_name} {clean_name}{pair_suffix}"
 
-    # 2. 웨이팅
+    # 2. 입구 포토존 / 마스코트
+    elif cat == "photo_zone":
+        variations = [
+            (
+                f"📸 {step_num}. 시선 강탈! 귀여움 한도 초과 {display_name} 포토존!",
+                f"매장 입구에 들어서자마자 저절로 휴대폰을 꺼내 들게 만든 {clean_name} 모습이에요! 📸✨\n\n"
+                f"아기자기하고 사랑스러운 소품과 마스코트가 반겨주어 기다리는 시간마저 지루할 틈이 없었는데요.\n\n"
+                f"연인이나 친구들과 함께 예쁜 인증샷을 남기기에 그야말로 완벽한 명당 포토스팟이었답니다 💖"
+            ),
+            (
+                f"🧸 {step_num}. 입구부터 취향 저격! 앙증맞은 {display_name} 감성!",
+                f"입구 쪽을 감성 가득하게 밝혀주고 있던 사랑스러운 {clean_name} 공간이에요! ✨\n\n"
+                f"특유의 포근하고 아늑한 무드가 매장 전체의 분위기를 한층 더 사랑스럽게 살려주었는데요.\n\n"
+                f"이곳을 배경으로 사진 한 장 남기면 바로 인생샷이 완성될 만큼 비주얼이 예술이었답니다 🧸"
+            ),
+            (
+                f"✨ {step_num}. 발걸음을 멈추게 만든 감성 스팟! {display_name}!",
+                f"골목을 지나가던 사람들도 한 번씩 멈춰 서서 구경하게 만드는 {clean_name} 전경이에요! 📸\n\n"
+                f"동화 속에 들어온 듯 아늑하고 따뜻한 감성이 물씬 묻어나서 매장에 들어서는 순간부터 힐링이 시작되었답니다 🥰"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{clean_name} 포토존{pair_suffix}"
+
+    # 3. 웨이팅
     elif cat == "waiting":
         variations = [
             (
@@ -493,7 +553,7 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
         header, text = pick_unique_variation(variations, used_set)
         caption = f"{clean_name} 현장 대기{pair_suffix}"
 
-    # 3. 맛집 인증 (미쉐린, 블루리본)
+    # 4. 맛집 인증 (미쉐린, 블루리본)
     elif cat == "award":
         variations = [
             (
@@ -512,43 +572,100 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
         header, text = pick_unique_variation(variations, used_set)
         caption = f"{store_name} {clean_name}{pair_suffix}"
 
-    # 4. 실내 인테리어 / 분위기
+    # 5. 실내 인테리어 / 분위기
     elif cat == "interior":
         variations = [
             (
                 f"🌿 {step_num}. 아늑함과 정갈함이 공존하는 실내 분위기!",
-                f"매장 문을 열고 안으로 들어서서 담아본 {clean_name} 사진이에요! 🌿\n\n"
+                f"매장 문을 열고 안으로 들어서서 담아본 {display_name} 사진이에요! 🌿\n\n"
                 f"따스하고 은은한 조명에 전체적인 공간이 쾌적하게 꾸며져 있어 일행과 편안하게 대화 나누기 참 좋았어요.\n\n"
                 f"구석구석 먼지 하나 없이 위생적으로 관리된 모습에 식사 전부터 안심이 되었답니다 💖"
             ),
             (
                 f"💡 {step_num}. 레트로와 모던 감성이 어우러진 매장 내부 전경!",
-                f"특유의 감각적인 무드가 매력적이었던 {clean_name} 모습이에요! ✨\n\n"
+                f"특유의 감각적인 무드가 매력적이었던 {display_name} 모습이에요! ✨\n\n"
                 f"원목과 현대적인 감성이 조화롭게 어우러져 사진을 찍는 족족 감성 샷이 완성되었는데요.\n\n"
                 f"식사하는 손님들을 배려한 차분한 공기 덕분에 대접받는 듯한 기분 좋은 여유를 즐길 수 있었답니다 🛋️"
             )
         ]
         header, text = pick_unique_variation(variations, used_set)
-        caption = f"{store_name} 아늑한 {clean_name}{pair_suffix}"
+        caption = f"{store_name} 아늑한 {display_name}{pair_suffix}"
 
-    # 5. 실내 좌석 / 테이블
+    # 6. 주문 카운터 및 픽업대
+    elif cat == "counter":
+        variations = [
+            (
+                f"🛒 {step_num}. 친절하고 활기찬 분위기! {display_name} & 픽업대!",
+                f"메뉴를 고르고 주문을 위해 다가간 {display_name} 모습이에요! ✨\n\n"
+                f"직원분들이 워낙 밝고 친절하게 응대해 주셔서 주문하는 순간부터 기분이 한껏 좋아졌는데요.\n\n"
+                f"카운터 주변도 먼지 하나 없이 깔끔하고 위생적으로 정돈되어 있어 더욱 믿음이 갔답니다 💖"
+            ),
+            (
+                f"🛎️ {step_num}. 정갈하고 쾌적하게 정돈된 {store_name} {display_name}!",
+                f"매장의 중심에서 활기를 불어넣어 주던 아늑한 {display_name} 전경이에요! 🛎️\n\n"
+                f"주문 동선도 편리하고 픽업 공간도 정돈이 잘 되어 있어 붐비는 시간에도 혼잡함 없이 쾌적하게 이용할 수 있었는데요.\n\n"
+                f"매장 곳곳에 묻어나는 섬세한 배려에 절로 미소가 지어졌답니다 👍"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"{store_name} {display_name}{pair_suffix}"
+
+    # 7. 실내 좌석 / 테이블
     elif cat == "seating":
         variations = [
             (
-                f"🛋️ {step_num}. 편안하고 쾌적한 자리! {clean_name} 전경!",
-                f"손님들이 편안하게 식사에 온전히 집중할 수 있도록 정갈하게 배치된 {clean_name} 공간이에요! 🪑\n\n"
+                f"🛋️ {step_num}. 편안하고 쾌적한 자리! {display_name} 전경!",
+                f"손님들이 편안하게 식사에 온전히 집중할 수 있도록 정갈하게 배치된 {display_name} 공간이에요! 🪑\n\n"
                 f"테이블 간격도 널찍하고 청결하게 정돈되어 있어 옆자리 방해 없이 식사를 즐길 수 있었는데요.\n\n"
                 f"의자도 편안해서 오랜 시간 머물며 도란도란 이야기 나누기에 더없이 좋았답니다 ✨"
             ),
             (
-                f"🪑 {step_num}. 깔끔하고 쾌적한 정돈! {clean_name} 좌석!",
-                f"안내를 받아 자리에 앉기 전 둘러본 {clean_name} 모습이에요! 🛋️\n\n"
+                f"🪑 {step_num}. 깔끔하고 쾌적한 정돈! {display_name} 좌석!",
+                f"안내를 받아 자리에 앉기 전 둘러본 {display_name} 모습이에요! 🛋️\n\n"
                 f"테이블 위 식기류와 소품들이 각 잡혀 깔끔하게 세팅되어 있어 위생 면에서 백점 만점을 주고 싶었는데요.\n\n"
                 f"데이트는 물론이고 가족이나 소중한 지인들과의 모임 자리로도 손색이 없겠더라고요 💖"
             )
         ]
         header, text = pick_unique_variation(variations, used_set)
-        caption = f"{store_name} 편안한 {clean_name}{pair_suffix}"
+        caption = f"{store_name} 편안한 {display_name}{pair_suffix}"
+
+    # 8. 셀프존 및 셀프바 코너
+    elif cat == "selfbar":
+        variations = [
+            (
+                f"💧 {step_num}. 깔끔하고 편리한 이용! 정돈된 {display_name} 코너!",
+                f"매장 한편에 손님들을 위해 정갈하게 마련된 {display_name} 공간이에요! 🌿\n\n"
+                f"시원한 냉수와 컵, 냅킨, 물티슈 등 필요한 편의 용품들이 청결하게 구비되어 있어 언제든 편하게 이용할 수 있었는데요.\n\n"
+                f"작은 부분까지 꼼꼼하고 위생적으로 신경 쓰신 모습에서 사장님의 세심한 정성이 느껴졌답니다 ✨"
+            ),
+            (
+                f"🌿 {step_num}. 손님을 위한 세심한 배려! 쾌적한 {display_name}!",
+                f"언제든 자유롭고 편리하게 이용할 수 있도록 준비된 깔끔한 {display_name} 모습이에요! 💧\n\n"
+                f"주변에 흘린 자국 하나 없이 수시로 깨끗하게 닦아 관리하시는 모습에 절로 감탄이 나왔는데요.\n\n"
+                f"머무는 내내 부족함 없이 편안하게 즐길 수 있도록 도와준 고마운 코너였답니다 👍"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"깔끔하고 쾌적한 {display_name}{pair_suffix}"
+
+    # 9. 화장실 및 매장 편의시설
+    elif cat == "facility":
+        variations = [
+            (
+                f"🚻 {step_num}. 청결함이 돋보이는 쾌적한 매장 {display_name}!",
+                f"매장 안쪽에 손님들을 위해 깔끔하게 마련된 {display_name} 모습이에요! 🚻✨\n\n"
+                f"식당이나 카페를 고를 때 위생과 화장실 청결도를 정말 중요하게 생각하는데, 들어서자마자 은은하고 기분 좋은 디퓨저 향이 퍼지며 반겨주더라고요.\n\n"
+                f"물기 하나 없이 뽀송뽀송하고 쾌적하게 관리되어 있어 이용하는 내내 기분이 참 상쾌했답니다 💖"
+            ),
+            (
+                f"🌿 {step_num}. 위생 점수 100점 만점! 안심하고 이용하는 {display_name} 시설!",
+                f"손님들의 편의를 위해 정갈하게 관리되고 있던 {display_name} 공간이에요! 🌿\n\n"
+                f"세련된 원목과 감각적인 인테리어 소품으로 꾸며져 있어 매장 전체의 세심한 디테일이 돋보였는데요.\n\n"
+                f"핸드워시와 페이퍼타월까지 빈틈없이 갖춰져 있어 마지막까지 대만족이었답니다 👍"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"쾌적하고 청결한 {display_name}{pair_suffix}"
 
     # 6. 매장 이용안내문 / 수칙
     elif cat == "notice":
@@ -607,7 +724,44 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
         header, text = pick_unique_variation(variations, used_set)
         caption = f"{store_name} {clean_name}{pair_suffix}"
 
-    # 9. 한상차림 / 상차림 / 밑반찬
+    # 베이커리 / 디저트 진열 쇼케이스 (메뉴1~메뉴8 등)
+    elif cat == "showcase":
+        variations = [
+            (
+                f"🥐 {step_num}. 눈을 뗄 수 없는 달콤한 유혹! 화려한 베이커리 쇼케이스!",
+                f"진열대를 가득 채운 화려하고 먹음직스러운 빵들의 비주얼에 감탄사가 절로 터져 나왔어요! 🥐✨\n\n"
+                f"노릇노릇 윤기가 자르르 흐르는 크루아상부터 결이 살아있는 페이스트리까지, 갓 구워져 나온 고소한 버터 풍미가 진열대 주변을 가득 채우고 있었는데요.\n\n"
+                f"하나하나 정성껏 빚어낸 완성도 높은 비주얼에 무엇을 골라야 할지 행복한 고민에 빠졌답니다 💖"
+            ),
+            (
+                f"✨ {step_num}. 갓 구워낸 빵들의 향연! 비주얼 폭발 베이커리 라인업!",
+                f"카메라 셔터를 멈출 수 없게 만든 감동의 베이커리 & 디저트 진열대 모습이에요! 📸✨\n\n"
+                f"바삭바삭한 식감이 눈으로도 전해지는 겉면과 촉촉함이 돋보이는 비주얼이 그야말로 예술이었는데요.\n\n"
+                f"재료를 아끼지 않고 듬뿍 넣어 구워낸 빵들의 자태를 보니 왜 오픈런을 부르는 핫플인지 단번에 실감 났답니다 👍"
+            ),
+            (
+                f"🧁 {step_num}. 빵순이 & 빵돌이 심쿵 유발! 영롱한 디저트 진열대!",
+                f"트레이마다 정갈하게 채워져 있던 매력 만점의 베이커리 라인업이에요! 🧁\n\n"
+                f"달콤하고 고소한 풍미가 솔솔 풍겨와서 보는 것만으로도 입안에 군침이 가득 고였는데요.\n\n"
+                f"비주얼뿐만 아니라 식감과 풍미의 조화까지 완벽하게 고려해 만든 디저트들이라 일행 모두 연신 감탄사를 쏟아냈답니다 😋"
+            ),
+            (
+                f"🥖 {step_num}. 노릇노릇 고소한 버터 풍미! 다채로운 구움과자 & 베이커리!",
+                f"먹음직스러운 자태로 시선을 사로잡은 다채로운 디저트 쇼케이스 모습이에요! 🥖✨\n\n"
+                f"금방 채워진 신선한 빵들마다 특유의 고소한 온기와 달콤한 시럽의 반짝임이 살아있었는데요.\n\n"
+                f"선물용이나 포장으로도 인기가 많은 이유를 눈으로 직접 확인한 순간이었답니다 🥰"
+            ),
+            (
+                f"🍰 {step_num}. 고르는 재미가 쏠쏠한 환상의 디저트 쇼케이스!",
+                f"눈과 코를 동시에 사로잡은 감동의 베이커리 진열 공간이에요! 🍰\n\n"
+                f"정성 가득한 담음새와 독창적인 토핑들이 돋보여 트레이에 하나씩 집어 담는 손길이 멈추지 않았는데요.\n\n"
+                f"오늘 이곳에 찾아오길 정말 잘했다며 일행들과 환호성을 질렀답니다 👍"
+            )
+        ]
+        header, text = pick_unique_variation(variations, used_set)
+        caption = f"화려하고 먹음직스러운 베이커리 쇼케이스{pair_suffix}"
+
+    # 한상차림 / 상차림 / 밑반찬
     elif cat == "sides":
         if "한상" in clean_name or "차림" in clean_name:
             variations = [
@@ -816,8 +970,42 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
         is_subsequent = clean_name in seen_dishes or len(seen_dishes) > 0
         seen_dishes.add(clean_name)
 
+        # 베이커리 / 빵 / 디저트
+        if any(w in c_lower for w in ["크루아상", "크로와상", "퀸아망", "페이스트리", "빵", "베이커리", "디저트", "케이크", "타르트", "스콘", "휘낭시에", "마들렌", "베이글", "샌드위치", "쿠키", "도넛"]):
+            variations = [
+                (
+                    f"🥐 {step_num}. 결이 살아있는 겉바속촉의 정석! {clean_name}!",
+                    f"테이블에 오르자마자 고소하고 달콤한 버터 향으로 감싸준 오늘의 주인공, {clean_name} 사진이에요! 🥐✨\n\n"
+                    f"한 입 베어 무는 순간 파사삭 부서지는 바삭한 겉면과 촉촉하고 쫄깃하게 씹히는 속 결의 조화가 그야말로 극락이었는데요.\n\n"
+                    f"달콤함과 고소함의 밸런스가 완벽해서 커피와 곁들이니 순식간에 접시를 비워낼 만큼 황홀했답니다 💖"
+                ),
+                (
+                    f"✨ {step_num}. 버터 풍미 가득 달콤 바삭한 {clean_name} 한입!",
+                    f"영롱한 비주얼을 뽐내며 등장한 감동의 시그니처, {clean_name} 모습이에요! 🧁\n\n"
+                    f"아낌없이 들어간 재료와 섬세하게 구워낸 장인의 손맛이 고스란히 느껴졌는데요.\n\n"
+                    f"입안 가득 차오르는 부드러운 달콤함에 하루의 피로가 싹 녹아내리는 기분이었답니다 😋"
+                )
+            ]
+
+        # 커피 / 음료
+        elif any(w in c_lower for w in ["커피", "라떼", "아메리카노", "에이드", "음료", "밀크티", "말차", "초코"]):
+            variations = [
+                (
+                    f"☕ {step_num}. 디저트와 찰떡궁합! 깊고 향긋한 {clean_name}!",
+                    f"달콤한 메뉴와 함께 즐기기 위해 곁들인 시원하고 깔끔한 {clean_name} 사진이에요! ☕✨\n\n"
+                    f"깊고 진한 원두의 크레마와 은은한 산미, 고소한 풍미가 달콤한 맛을 완벽하게 잡아주었는데요.\n\n"
+                    f"식사의 마무리까지 산뜻하고 여유롭게 완성해 준 최고의 힐링 한 모금이었답니다 💖"
+                ),
+                (
+                    f"🌿 {step_num}. 입안을 깔끔하게 감싸주는 향긋한 {clean_name}!",
+                    f"테이블을 청량하게 밝혀준 매력적인 음료, {clean_name} 비주얼이에요! 🥤\n\n"
+                    f"과하지 않은 깔끔한 목넘김과 풍부한 향미가 돋보여 마시는 내내 미소가 떠나지 않았는데요.\n\n"
+                    f"마지막 한 모금까지 시원하게 들이켜며 완벽한 티타임을 즐겼답니다 👍"
+                )
+            ]
+
         # 육전 / 파전 / 부침 / 튀김
-        if any(w in c_lower for w in ["육전", "전", "파전", "튀김", "부침개"]):
+        elif any(w in c_lower for w in ["육전", "전", "파전", "튀김", "부침개"]):
             if is_subsequent:
                 variations = [
                     (
