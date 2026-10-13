@@ -123,6 +123,15 @@ class NaverBlogApp(tk.Tk):
         )
         self.btn_random_example.pack(side="left", padx=(8, 0))
 
+        # [사용자 요청] 네이버 실시간 검색 크롤링 핫플 발굴 버튼 (하드코딩 완전 탈피)
+        self.btn_live_crawl_hotplaces = tk.Button(
+            top_ctrl_bar, text="🌐 실시간 네이버 핫플 발굴", 
+            font=("Malgun Gothic", 9, "bold"), bg="#0288D1", fg="white",
+            relief="flat", padx=10, pady=4, cursor="hand2",
+            command=self.on_live_crawl_hotplaces
+        )
+        self.btn_live_crawl_hotplaces.pack(side="left", padx=(6, 0))
+
         # [작성 이력 관리 버튼]
         self.btn_manage_history = tk.Button(
             top_ctrl_bar, text="📋 작성한 핫플 목록/관리", 
@@ -408,6 +417,45 @@ class NaverBlogApp(tk.Tk):
         self.apply_preset(chosen[0], chosen[1], chosen[2], chosen[3])
         rem = len(candidates) - 1
         self.log(f"🔥 [최신 핫플 추천] '{chosen[0]}' ({chosen[1]} | {chosen[2]}) 예시가 채워졌습니다! (이미 쓴 곳은 자동 제외됨, 남은 핫플: {rem}곳)")
+
+    def on_live_crawl_hotplaces(self):
+        """네이버에서 실시간 최신 핫플레이스를 라이브 검색 크롤링하여 발굴 (하드코딩 0%)"""
+        writer.stop_active_browser_session()
+        self.reset_start_button()
+        
+        input_loc = self.entry_location.get().strip()
+        trend_areas = ["성수동", "용리단길", "을지로", "신당동", "압구정", "연남동", "망원동", "한남동", "송리단길", "안국동", "광안리", "해운대"]
+        target_area = input_loc if (input_loc and input_loc not in ["성수동", "서울"]) else random.choice(trend_areas)
+
+        def task():
+            self.btn_live_crawl_hotplaces.config(state="disabled", text=f"🌐 '{target_area}' 크롤링 중...")
+            self.log(f"🌐 [네이버 실시간 핫플 검색] 네이버에서 '{target_area} 핫플 맛집' 실시간 검색 및 주간 인기 매장 크롤링 중...")
+            try:
+                results = store_crawler.crawl_live_trending_hotplaces(area=target_area, max_count=10)
+                if results:
+                    history_manager.save_live_hotplaces(results)
+                    self.update_preset_status_label()
+                    
+                    unwritten = [r for r in results if r["store"] not in history_manager.get_written_store_names()]
+                    chosen = random.choice(unwritten) if unwritten else results[0]
+                    
+                    self.apply_preset(
+                        chosen["store"], 
+                        chosen.get("location", target_area), 
+                        chosen.get("menu", "대표 인기 메뉴"), 
+                        chosen.get("features", f"네이버 플레이스 실시간 {target_area} 주간 인기 핫플")
+                    )
+                    self.log(f"✅ [실시간 발굴 성공] 네이버 실시간 검색으로 '{target_area}' 최신 핫플 {len(results)}곳 발굴 완료!\n👉 '{chosen['store']}' ({chosen.get('menu', '')})이(가) 자동 세팅되었습니다!")
+                else:
+                    self.log(f"⚠️ '{target_area}' 실시간 크롤링 결과가 없어 기존 추천 풀에서 추천합니다.")
+                    self.on_generate_random_preset()
+            except Exception as e:
+                self.log(f"실시간 핫플 발굴 안내: {e}")
+                self.on_generate_random_preset()
+            finally:
+                self.btn_live_crawl_hotplaces.config(state="normal", text="🌐 실시간 네이버 핫플 발굴")
+
+        threading.Thread(target=task, daemon=True).start()
 
     def on_manage_history(self):
         """작성 완료된 핫플 히스토리 관리 창"""

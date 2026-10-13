@@ -151,13 +151,59 @@ def clear_written_history():
         return False
 
 
+LIVE_CACHE_FILE = os.path.join(CURRENT_DIR, "live_hotplaces_cache.json")
+
+def load_live_hotplaces():
+    """실시간 네이버 검색으로 발굴된 핫플레이스 캐시 불러오기"""
+    if os.path.exists(LIVE_CACHE_FILE):
+        try:
+            with open(LIVE_CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                items = data.get("places", [])
+                return [(it["store"], it["location"], it["menu"], it["features"]) for it in items]
+        except Exception:
+            return []
+    return []
+
+def save_live_hotplaces(places_list):
+    """실시간 크롤링된 핫플레이스를 캐시에 누적 저장"""
+    existing = {it[0]: it for it in load_live_hotplaces()}
+    for it in places_list:
+        if isinstance(it, dict):
+            s = it.get("store", "")
+            if s:
+                existing[s] = (s, it.get("location", ""), it.get("menu", ""), it.get("features", ""))
+        elif isinstance(it, (tuple, list)) and len(it) >= 4:
+            existing[it[0]] = (it[0], it[1], it[2], it[3])
+            
+    payload = [
+        {"store": v[0], "location": v[1], "menu": v[2], "features": v[3]}
+        for v in existing.values()
+    ]
+    try:
+        with open(LIVE_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"places": payload}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"라이브 핫플 캐시 저장 실패: {e}")
+
 def get_unwritten_hot_candidates(current_store=""):
     """
     아직 작성하지 않은 핫플레이스 식당 목록만 필터링하여 반환
+    (실시간 네이버 크롤링으로 발굴된 최신 매장 우선 포함)
     """
     written_names = get_written_store_names()
+    live_pool = load_live_hotplaces()
+    
+    # 실시간 수집 풀 + 기본 엄선 풀 합산 (중복 제거)
+    seen = set()
+    combined = []
+    for item in live_pool + HOT_RESTAURANT_POOL:
+        if item[0] not in seen:
+            seen.add(item[0])
+            combined.append(item)
+
     candidates = [
-        p for p in HOT_RESTAURANT_POOL 
+        p for p in combined 
         if p[0] not in written_names and p[0] != current_store
     ]
     return candidates
@@ -166,10 +212,15 @@ def get_unwritten_hot_candidates(current_store=""):
 def get_history_stats():
     """작성 통계 반환 (총 핫플 수, 작성 완료 수, 남은 수)"""
     written = len(get_written_store_names())
-    total = len(HOT_RESTAURANT_POOL)
+    live_pool = load_live_hotplaces()
+    seen = set()
+    for item in live_pool + HOT_RESTAURANT_POOL:
+        seen.add(item[0])
+    total = len(seen)
     return {
         "total": total,
         "written": written,
         "remaining": max(0, total - written)
     }
+
 

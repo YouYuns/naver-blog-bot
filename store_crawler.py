@@ -85,7 +85,7 @@ def is_clean_image(image_bytes_or_path, is_menu=False):
 
 def fetch_store_details(store_name, location=""):
     """
-    네이버 포털 검색을 통해 해당 식당의 실제 정보를 크롤링
+    네이버 포털 검색을 통해 해당 식당의 실제 정보 및 실시간 블로그 찐후기 크롤링
     """
     query = f"{location} {store_name}".strip()
     url = f"https://search.naver.com/search.naver?query={urllib.parse.quote(query)}"
@@ -98,7 +98,16 @@ def fetch_store_details(store_name, location=""):
         "break_time": "",
         "holiday": "",
         "parking": "인근 유료/공영주차장 이용 권장",
-        "convenience": ""
+        "convenience": "",
+        "star_rating": "",
+        "review_count": "",
+        "ai_summary": "",
+        "popular_menus": [],
+        "live_reviews": {
+            "taste": [],
+            "vibe": [],
+            "general": []
+        }
     }
 
     try:
@@ -120,11 +129,31 @@ def fetch_store_details(store_name, location=""):
                     matched_text = t
                     break
 
+            # 실시간 블로그 및 방문자 찐리뷰 수집을 위한 전체 본문 텍스트
+            all_page_text = page.inner_text("body")
+            browser.close()
+
             if matched_text:
                 lines = [l.strip() for l in matched_text.split("\n") if l.strip()]
                 for idx, line in enumerate(lines):
+                    # 별점 및 리뷰 수 탐색
+                    if line == "별점" and idx + 1 < len(lines):
+                        score_text = lines[idx + 1]
+                        m_score = re.search(r'(\d+\.\d+)', score_text)
+                        if m_score:
+                            info["star_rating"] = m_score.group(1)
+                        m_rev = re.search(r'리뷰\s*([0-9\.,만\+]+)', score_text)
+                        if m_rev:
+                            info["review_count"] = m_rev.group(1)
+
+                    # AI 요약 한줄평
+                    if "AI 요약" in line or "AI요약" in line:
+                        clean_ai = line.replace("AI 요약", "").replace("AI요약", "").strip()
+                        if clean_ai:
+                            info["ai_summary"] = clean_ai
+
                     # 주소 탐색
-                    if line == "주소" and idx + 1 < len(lines):
+                    elif line == "주소" and idx + 1 < len(lines):
                         addr = lines[idx + 1].replace("지도", "").strip()
                         if addr:
                             info["address"] = addr
@@ -167,11 +196,100 @@ def fetch_store_details(store_name, location=""):
                 elif "무료주차" in matched_text or "주차 가능" in matched_text:
                     info["parking"] = "매장 무료/유료 주차 가능"
 
-            browser.close()
+            # 실시간 블로그 찐후기 문장 추출
+            all_lines = [l.strip() for l in all_page_text.split("\n") if len(l.strip()) > 25]
+            filter_words = ["스마트블록", "인기글", "전체보기", "접기", "공유", "네이버", "거리순", "광고"]
+            for line in all_lines:
+                if any(w in line for w in filter_words):
+                    continue
+                clean_l = re.sub(r'^\d{4}\.\d{2}\.\d{2}\.?', '', line).strip()
+                clean_l = re.sub(r'#\S+', '', clean_l).strip()
+                if len(clean_l) < 20:
+                    continue
+
+                if any(k in clean_l for k in ["맛있", "풍미", "식감", "달콤", "고소", "바삭", "촉촉", "육수", "쫄깃", "버터", "국물"]):
+                    if clean_l not in info["live_reviews"]["taste"]:
+                        info["live_reviews"]["taste"].append(clean_l)
+                elif any(k in clean_l for k in ["인테리어", "분위기", "감성", "사진", "포토", "소품", "매장", "조명", "자리"]):
+                    if clean_l not in info["live_reviews"]["vibe"]:
+                        info["live_reviews"]["vibe"].append(clean_l)
+                else:
+                    if clean_l not in info["live_reviews"]["general"]:
+                        info["live_reviews"]["general"].append(clean_l)
+
     except Exception as e:
         print(f"가게 정보 검색 중 안내: {e}")
 
     return info
+
+
+def crawl_live_trending_hotplaces(area="성수동", max_count=10):
+    """
+    네이버에서 실시간 최신 핫플레이스를 검색 크롤링하여 (상호, 위치, 대표메뉴, 특징) 반환
+    - 하드코딩 없이 네이버 플레이스 주간 인기 매장과 메뉴를 라이브로 직접 가져옴
+    """
+    query = f"{area} 핫플 맛집"
+    url = f"https://search.naver.com/search.naver?query={urllib.parse.quote(query)}"
+    
+    results = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                executable_path=CHROME_PATH,
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"]
+            )
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=12000)
+            page.wait_for_timeout(2500)
+            
+            boxes = page.locator('.api_subject_bx')
+            place_text = ""
+            for i in range(boxes.count()):
+                t = boxes.nth(i).inner_text().strip()
+                if "플레이스플레이스 검색결과" in t or "플레이스 검색결과" in t:
+                    place_text = t
+                    break
+            browser.close()
+            
+        if place_text:
+            lines = [l.strip() for l in place_text.split("\n") if l.strip()]
+            for i, line in enumerate(lines):
+                if line == "주간 인기 많은 메뉴" and i + 1 < len(lines):
+                    menus = lines[i + 1]
+                    save_idx = -1
+                    for back in range(1, 15):
+                        if i - back >= 0 and lines[i - back] == "저장":
+                            save_idx = i - back
+                            break
+                    
+                    store_name = ""
+                    feature = ""
+                    if save_idx != -1:
+                        for back in range(1, 10):
+                            idx = save_idx - back
+                            if idx >= 0:
+                                cand = lines[idx]
+                                if cand in ["광고", "영업 중", "별점", "TV", "2TV생생정보", "예약", "쿠폰", "톡톡", "네이버페이"]:
+                                    continue
+                                if re.match(r'^\d+(\.\d+)?(리뷰.*)?$', cand):
+                                    continue
+                                if not feature and len(cand) > 6 and not any(w in cand for w in ["양식", "한식", "카페", "일식"]):
+                                    feature = cand
+                                elif not store_name and 2 <= len(cand) <= 20 and not any(w in cand for w in ["양식", "한식", "카페", "일식", "스파게티"]):
+                                    store_name = cand
+                                    break
+                    if store_name and not any(r['store'] == store_name for r in results):
+                        results.append({
+                            "store": store_name,
+                            "location": area,
+                            "menu": menus,
+                            "features": feature or f"네이버 플레이스 실시간 {area} 주간 인기 핫플레이스"
+                        })
+    except Exception as e:
+        print(f"실시간 핫플 검색 오류: {e}")
+        
+    return results[:max_count]
 
 def download_store_photos(store_name, location="", max_count=14, status_callback=print, force_refresh=False):
     """
@@ -325,6 +443,11 @@ def format_store_info_section(info):
         f"📞 전화번호 : {tel}",
         f"⏰ 영업시간 : {biz}",
     ]
+    if info.get("star_rating"):
+        rev_txt = f" (방문자 리뷰 {info['review_count']})" if info.get("review_count") else ""
+        lines.append(f"⭐ 네이버 평점 : {info['star_rating']}점{rev_txt}")
+    if info.get("ai_summary"):
+        lines.append(f"💡 매장 특징 : {info['ai_summary']}")
     if info.get("break_time"):
         lines.append(f"☕ 브레이크타임 : {info['break_time']}")
     if info.get("holiday"):
