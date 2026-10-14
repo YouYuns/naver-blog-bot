@@ -115,7 +115,7 @@ def parse_photo_info(filepath):
     elif any(k in clean_lower for k in ["디테일", "근접", "클로즈업", "단면", "확대", "윤기"]):
         cat = "detail"
     # 21. 사이드 메뉴
-    elif any(k in clean_lower for k in ["사이드", "서브", "라면", "찌개", "볶음밥", "냉면", "음료", "주류", "맥주", "소주", "하이볼", "사리", "추가", "주먹밥", "계란찜", "만두"]):
+    elif any(k in clean_lower for k in ["사이드", "서브", "음료", "주류", "맥주", "소주", "하이볼", "사리추가", "추가사리", "주먹밥", "계란찜"]):
         cat = "sub_dish"
     else:
         cat = "dish"
@@ -474,16 +474,29 @@ def pick_unique_variation(variations, used_set, key_prefix="tpl", fallback_pool=
             used_set.add(chosen_key)
             return chosen_item
 
-    # 극단적인 경우 랜덤 선택
-    chosen_idx = random.randint(0, len(variations) - 1)
-    return variations[chosen_idx]
+    # 만약 모든 풀을 소진한 경우 (사진 개수가 풀보다 많을 때):
+    # 기존 문장을 그대로 반복하지 않고 새로운 수식어와 헤더/문맥을 동적 결합하여 중복 완전 방지!
+    base_h, base_t = variations[random.randint(0, len(variations) - 1)]
+    prefix_opts = ["✨ 시선 집중!", "📸 또 다른 매력의", "💖 놓칠 수 없는", "👍 감탄을 자아낸", "😋 젓가락이 절로 가는"]
+    closing_opts = [
+        "다른 각도에서 바라보아도 그 매력과 정성이 한결같이 느껴져 만족스러웠답니다 🥰",
+        "보는 재미와 맛보는 즐거움이 동시에 채워져 일행 모두 연신 미소를 지었어요 ✨",
+        "작은 디테일까지 정갈하게 담아내어 식사의 완성도를 한층 더 높여주었답니다 👍"
+    ]
+    raw_title = base_h.split(".")[-1].strip() if "." in base_h else base_h
+    new_h = f"{random.choice(['✨', '📸', '💖', '⭐', '🥢'])} {random.choice(prefix_opts)} {raw_title}"
+    new_t = f"{base_t}\n\n{random.choice(closing_opts)}"
+    return new_h, new_t
 
 
 def determine_food_type(clean_name, main_menu=""):
     """
-    파일명과 대표 메뉴를 정밀 분석하여 음식 유형(베이커리, 음료, 전, 면, 비빔, 탕/찌개, 고기, 해산물, 일반) 자동 판별
+    파일명과 대표 메뉴를 정밀 분석하여 음식 유형(만두, 베이커리, 음료, 전, 면, 비빔, 탕/찌개, 고기, 해산물, 일반) 자동 판별
     """
     c = clean_name.lower()
+    m = main_menu.lower()
+    if any(w in c for w in ["만두", "교자", "칼만두", "찐만두", "군만두", "손만두", "물만두", "비빔만두"]):
+        return "mandoo"
     m = main_menu.lower()
     if any(w in c for w in ["크루아상", "크로와상", "퀸아망", "페이스트리", "빵", "베이커리", "디저트", "케이크", "타르트", "스콘", "휘낭시에", "마들렌", "베이글", "샌드위치", "쿠키", "도넛", "소금빵", "식빵", "와플"]):
         return "bakery"
@@ -502,6 +515,8 @@ def determine_food_type(clean_name, main_menu=""):
     if any(w in c for w in ["회", "조개", "해물", "초밥", "스시", "생선", "대방어", "물회"]):
         return "seafood"
     # 만약 사진명이 '메뉴1', '메뉴2' 등 일반 번호이지만 대표메뉴가 베이커리나 면/고기일 때 자동 매칭
+    if any(w in m for w in ["만두", "칼만두", "손만두", "교자"]):
+        return "mandoo"
     if any(w in m for w in ["크루아상", "퀸아망", "빵", "베이커리", "디저트", "베이글"]):
         return "bakery"
     if any(w in m for w in ["칼국수", "국수", "라멘", "면"]):
@@ -657,6 +672,14 @@ def synthesize_dynamic_dish_block(step_num, clean_name, store_name, location, ma
             f"불판 위에서 노릇노릇 구워진 고기에서 팡 터지는 고소한 육즙의 자태가 그야말로 극상의 황홀함을 선사했는데요.",
             f"질김 없이 사르르 녹아내리는 부드러운 육질과 깊은 육향이 어우러져 어떤 곁들임 찬과 먹어도 찰떡궁합이었답니다.",
             f"기름진 느끼함 없이 씹을수록 담백하고 진한 풍미가 뿜어져 나와 일행 모두 연신 젓가락을 움직였어요."
+        ]
+    elif food_type == "mandoo":
+        t_opts = [
+            f"얇고 차진 만두피 속에 고기와 신선한 채소로 꽉 찬 소가 어우러져, 한 입 베어 무는 순간 진한 육즙이 팡 터져 나왔는데요.",
+            f"잡내 하나 없이 담백하면서도 씹을수록 감칠맛이 폭발하는 속 재료의 환상적인 밸런스에 감탄이 절로 나왔답니다.",
+            f"촉촉하고 부드러운 만두피와 아삭하게 씹히는 소의 조화가 완벽해서 간장에 살짝 찍어 맛보니 그야말로 꿀맛이었어요.",
+            f"손으로 정성껏 빚어낸 남다른 볼륨감과 꽉 찬 식감 덕분에 한 개만 맛보아도 입안 가득 든든한 포만감이 차올랐답니다.",
+            f"피는 쫄깃하고 속은 육즙으로 촉촉하게 가득 차서 한 입 먹을 때마다 감탄사가 멈추지 않는 독보적인 맛이었어요."
         ]
     elif food_type == "seafood":
         t_opts = [
@@ -1062,6 +1085,24 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"한 점 집어 올리자마자 뿜어져 나오는 고소한 풍미의 {clean_name} 모습이에요! 💖\n\n"
                 f"두툼하면서도 야들야들하게 씹히는 부드러운 식감에 씹을수록 깊은 고소함이 입안 가득 맴돌았는데요.\n\n"
                 f"왜 이곳의 필수 시그니처로 손꼽히는지 단 한 입만으로도 완벽하게 납득이 되었답니다 👍"
+            ),
+            (
+                f"✨ {step_num}. 멈출 수 없는 젓가락질! 입안 가득 감동의 {clean_name}!",
+                f"한 젓가락 듬뿍 집어 올려 카메라에 담아본 {clean_name} 컷이에요! 🍽️✨\n\n"
+                f"잡내 없이 깔끔하고 찰진 식감이 돋보여 입에 넣자마자 탄성이 절로 흘러나왔는데요.\n\n"
+                f"씹는 맛과 풍미의 밸런스가 뛰어나 일행 모두 연신 젓가락을 바쁘게 움직였답니다 🥰"
+            ),
+            (
+                f"😋 {step_num}. 침샘을 자극하는 영롱한 한 점! {clean_name}!",
+                f"클로즈업으로 담아낸 먹음직스러운 {clean_name} 비주얼이에요! 🥢\n\n"
+                f"겉면에 감도는 윤기와 촉촉함이 사진으로도 고스란히 전해져 식욕을 무한 자극했는데요.\n\n"
+                f"특제 곁들임 찬과 조합해 맛보니 풍미가 두 배로 업그레이드되어 감탄을 연발했답니다 💖"
+            ),
+            (
+                f"👑 {step_num}. 독보적인 식감과 손맛의 향연! {clean_name} 한입!",
+                f"정성 가득한 내공이 깃든 {clean_name} 한 점의 매력이에요! 📸✨\n\n"
+                f"입에 닿는 순간 퍼지는 깊은 풍미와 부드러운 탄력이 그야말로 환상적이었는데요.\n\n"
+                f"오랜 기다림 끝에 맛본 보람을 200% 만끽하게 해 준 최고의 먹방 순간이었답니다 👍"
             )
         ]
         header, text = pick_unique_variation(variations, used_set, key_prefix="dish_lifting")
@@ -1081,6 +1122,18 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"그릇 가득 채워져 있던 푸짐한 {clean_name} 모습이에요! 🍽️\n\n"
                 f"신선한 재료 본연의 담백한 맛과 양념이 쏙 배어든 깊은 감칠맛의 밸런스가 완벽했는데요.\n\n"
                 f"골라 먹어도 먹어도 줄지 않을 만큼 혜자로운 양에 사장님의 아낌없는 인심을 체감했답니다 👍"
+            ),
+            (
+                f"🔍 {step_num}. 재료의 신선도가 한눈에 보이는 {clean_name} 디테일!",
+                f"클로즈업으로 정밀하게 담아본 알찬 {clean_name} 컷이에요! 📸✨\n\n"
+                f"재료 하나하나의 탄력과 맑은 빛깔이 살아있어 좋은 식재료만을 고집하시는 철학이 느껴졌는데요.\n\n"
+                f"메인 요리와 어우러지며 국물과 면발의 맛을 한 차원 끌어올려 주는 일등공신이었답니다 💖"
+            ),
+            (
+                f"🍲 {step_num}. 아삭쫄깃 살아있는 식감의 앙상블, {clean_name}!",
+                f"숟가락 위에 소복하게 얹어 담아본 먹음직스러운 {clean_name} 모습이에요! 😋\n\n"
+                f"씹을 때마다 은은하게 배어 나오는 본연의 풍미 덕분에 질릴 틈 없이 식사를 즐겼는데요.\n\n"
+                f"푸짐한 양과 뛰어난 퀄리티 모두 대만족을 안겨준 특별한 고명이었답니다 ✨"
             )
         ]
         header, text = pick_unique_variation(variations, used_set, key_prefix="topping_detail")
@@ -1100,6 +1153,18 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"따끈따끈한 김과 함께 퍼지는 구수한 향의 {clean_name} 모습이에요! 🥣\n\n"
                 f"오랜 정성으로 푹 끓여내어 기름기 없이 깔끔하면서도 묵직한 내공이 돋보이는 육수 맛이 일품이었는데요.\n\n"
                 f"숟가락으로 떠먹을 때마다 속이 따뜻해지며 감탄사가 절로 새어 나왔답니다 👍"
+            ),
+            (
+                f"✨ {step_num}. 속을 편안하게 감싸주는 개운한 감칠맛! {clean_name}!",
+                f"맑고 투명하면서도 깊은 향미를 품은 {clean_name} 클로즈업 사진이에요! 🍲\n\n"
+                f"인공적인 조미료 맛이 아닌 천연 식재료에서 우러나온 은은하고 시원한 단맛이 압권이었는데요.\n\n"
+                f"식사 중간중간 목을 축여주며 입안을 산뜻하게 리프레시해 주었답니다 💖"
+            ),
+            (
+                f"🔥 {step_num}. 뚝배기 가득 우러난 정성! 뜨끈한 {clean_name}!",
+                f"보글보글 온기가 고스란히 남아있는 {clean_name} 비주얼이에요! 🥣✨\n\n"
+                f"한 숟가락 후루룩 넘기자마자 온몸이 사르르 녹아내리는 듯한 힐링을 선사해 주었는데요.\n\n"
+                f"마지막 한 방울까지 남김없이 비워낼 만큼 중독성 강한 명품 육수였답니다 🥰"
             )
         ]
         header, text = pick_unique_variation(variations, used_set, key_prefix="soup_side")
@@ -1119,6 +1184,18 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"윤기가 자르르 흐르는 먹음직스러운 {clean_name} 사진이에요! 🥢\n\n"
                 f"입안 가득 차오르는 풍성한 면발의 볼륨감과 쫄깃한 식감에 일행 모두 쉼 없이 면치기에 몰입했는데요.\n\n"
                 f"마지막 한 가닥까지 남김없이 건져먹을 정도로 완벽한 완성도를 자랑했답니다 💖"
+            ),
+            (
+                f"✨ {step_num}. 자가제면의 깊은 손맛! 탄력 넘치는 {clean_name}!",
+                f"길쭉하게 들어 올린 면발 사이로 김이 모락모락 피어오르는 {clean_name} 컷이에요! 🍜\n\n"
+                f"겉은 매끄럽고 속은 탄탄하게 씹히는 이상적인 면발의 정석을 보여주었는데요.\n\n"
+                f"양념장 및 육수와의 흡착력이 뛰어나 후루룩 흡입할 때마다 감탄사가 쏟아졌답니다 👍"
+            ),
+            (
+                f"😋 {step_num}. 입에 착 감기는 황홀한 식감! {clean_name} 면치기!",
+                f"카메라를 절로 켜게 만든 역대급 {clean_name} 비주얼이에요! 🥢✨\n\n"
+                f"쫄깃하면서도 부드럽게 넘어가는 환상의 목넘김 덕분에 젓가락을 멈출 새가 없었는데요.\n\n"
+                f"면 요리 마니아라면 누구나 엄지를 치켜세울 수밖에 없는 명품 면발이었답니다 🥰"
             )
         ]
         header, text = pick_unique_variation(variations, used_set, key_prefix="noodle_lifting")
@@ -1173,28 +1250,37 @@ def create_story_for_photo_batch(step_num, cat, clean_name, store_name, location
                 f"사장님이 귀띔해 주신 팁대로 알차게 조합해 본 {clean_name} 비주얼이에요! 🥢\n\n"
                 f"단독으로 먹어도 훌륭하지만 서로 다른 재료들이 시너지를 내어 풍미가 두 배로 업그레이드되었는데요.\n\n"
                 f"마지막 한 점까지 이 조합으로 알차게 즐기며 폭풍 먹방을 이어갔답니다 👍"
+            ),
+            (
+                f"🥗 {step_num}. 다채로운 식감의 폭발! 환상적인 {clean_name} 조합!",
+                f"신선한 곁들임 찬과 메인 요리를 함께 올려 완성한 {clean_name} 컷이에요! 🍽️✨\n\n"
+                f"아삭함과 쫄깃함이 입안에서 어우러지며 전혀 새로운 미식의 세계를 열어주었는데요.\n\n"
+                f"물릴 틈 없이 계속해서 손이 가게 만드는 마성의 황금 조합이었답니다 🥰"
+            ),
+            (
+                f"😋 {step_num}. 입안 가득 터지는 감칠맛의 시너지! {clean_name}!",
+                f"골고루 비비고 어우러져 더욱 먹음직스러워진 {clean_name} 비주얼이에요! 🥢\n\n"
+                f"단짠의 균형과 알싸한 양념이 재료 본연의 맛을 극대화해 주어 한 입 가득 행복을 채웠답니다 👍"
             )
         ]
         header, text = pick_unique_variation(variations, used_set, key_prefix="combo")
         caption = f"맛있는 {clean_name}{pair_suffix}"
 
-    # 16. 사이드 메뉴
+    # 16. 사이드 메뉴 - 고정 템플릿 탈피, 동적 합성 엔진으로 무한 다변화
     elif cat == "sub_dish":
-        variations = [
-            (
-                f"🍜 {step_num}. 놓칠 수 없는 든든한 별미! {clean_name}!",
-                f"메인 요리와 함께 곁들이기 위해 주문한 {clean_name} 사진이에요! 🍜✨\n\n"
-                f"사진처럼 푸짐하고 먹음직스러운 비주얼을 자랑하며 식사의 완성도를 한층 더 높여주었는데요.\n\n"
-                f"메인 요리와의 궁합도 찰떡이라 마지막 한 숟가락까지 감탄하며 든든하게 즐겼답니다 ✨"
-            ),
-            (
-                f"🍲 {step_num}. 식사를 더욱 풍성하게 만들어준 {clean_name}!",
-                f"테이블을 한층 더 화려하게 채워준 매력적인 사이드, {clean_name} 비주얼이에요! 🍽️\n\n"
-                f"메인 못지않은 푸짐한 양과 정갈한 플레이팅에 다들 젓가락을 멈추지 못했는데요.\n\n"
-                f"함께 곁들이니 물릴 틈 없이 식사의 텐션을 끝까지 끌어올려 주었답니다 😋"
-            )
-        ]
-        header, text = pick_unique_variation(variations, used_set, key_prefix="sub_dish")
+        is_subsequent = True
+        ft = determine_food_type(clean_name, main_menu)
+        header, text = synthesize_dynamic_dish_block(
+            step_num=step_num,
+            clean_name=clean_name,
+            store_name=store_name,
+            location=location,
+            main_menu=main_menu,
+            food_type=ft,
+            live_reviews=live_reviews,
+            used_set=used_set,
+            is_subsequent=True
+        )
         caption = f"푸짐하고 맛깔스러운 {clean_name}{pair_suffix}"
 
     # 17. 디테일
