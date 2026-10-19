@@ -153,6 +153,34 @@ class NaverBlogApp(tk.Tk):
         self.lbl_preset_status.pack(side="left")
         self.update_preset_status_label()
 
+        # 주소 또는 네이버 플레이스 링크 원클릭 자동완성 바
+        address_bar = tk.LabelFrame(info_group, text=" 📍 도로명 주소 또는 네이버 플레이스 링크로 1초 자동 완성 ", font=("Malgun Gothic", 9, "bold"), bg="#EBF3FB", fg="#0052cc", padx=8, pady=5)
+        address_bar.pack(fill="x", pady=(2, 8))
+
+        tk.Label(address_bar, text="주소/링크:", font=("Malgun Gothic", 9, "bold"), bg="#EBF3FB", fg="#333").pack(side="left", padx=(0, 5))
+        self.entry_address_or_url = ttk.Entry(address_bar, font=("Malgun Gothic", 9))
+        self.entry_address_or_url.insert(0, "예) 서울 종로구 북촌로2길 5-6 또는 네이버 플레이스 링크 URL")
+        self.entry_address_or_url.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        def on_addr_focus_in(event):
+            if "예)" in self.entry_address_or_url.get():
+                self.entry_address_or_url.delete(0, tk.END)
+        self.entry_address_or_url.bind("<FocusIn>", on_addr_focus_in)
+
+        self.btn_resolve_address = tk.Button(
+            address_bar,
+            text="⚡ 주소로 사진&정보 원스톱 수집",
+            font=("Malgun Gothic", 9, "bold"),
+            bg="#0052cc",
+            fg="white",
+            relief="flat",
+            padx=10,
+            pady=3,
+            cursor="hand2",
+            command=self.on_resolve_address_or_url
+        )
+        self.btn_resolve_address.pack(side="right")
+
         # 입력 필드 그리드
         grid = tk.Frame(info_group, bg="#F4F6F9")
         grid.pack(fill="x")
@@ -379,6 +407,8 @@ class NaverBlogApp(tk.Tk):
         """새로 만들기 / 입력창 및 사진 초기화"""
         writer.stop_active_browser_session()
         self.reset_start_button()
+        self.entry_address_or_url.delete(0, tk.END)
+        self.entry_address_or_url.insert(0, "예) 서울 종로구 북촌로2길 5-6 또는 네이버 플레이스 링크 URL")
         self.entry_store.delete(0, tk.END)
         self.entry_location.delete(0, tk.END)
         self.entry_menu.delete(0, tk.END)
@@ -587,10 +617,84 @@ class NaverBlogApp(tk.Tk):
         self.photo_paths = []
         self.lbl_photo_info.config(text="선택된 사진: 0장 (작성 시 네이버에서 해당 식당 실사 자동 수집)")
 
+    def on_resolve_address_or_url(self):
+        """사용자가 입력한 주소/링크로 상호, 위치, 메뉴, 정보 및 알맞은 이름의 사진들을 한 번에 자동 완성"""
+        query = self.entry_address_or_url.get().strip()
+        if not query or "예)" in query:
+            messagebox.showwarning("주소 또는 링크 입력 필요", "식당 도로명 주소(예: 서울 종로구 북촌로2길 5-6) 또는 네이버 플레이스 URL 링크를 입력해주세요.")
+            return
+
+        def task():
+            self.btn_resolve_address.config(state="disabled", text="⏳ 주소 분석 중...")
+            self.log(f"📍 [주소/링크 원스톱 처리] '{query}' 분석 및 매장 탐색 시작...")
+            try:
+                res = store_crawler.resolve_store_from_address_or_url(query, status_callback=self.log)
+                if not res or not res.get("store_name"):
+                    self.log("⚠️ 해당 주소에서 식당 정보를 찾지 못했습니다. 상호명을 직접 입력해주세요.")
+                    return
+
+                store_name = res["store_name"]
+                location = res.get("location", "")
+                menu = res.get("menu", "")
+                features = res.get("features", "")
+                store_info = res.get("store_info", {})
+
+                # 1. 입력창 자동 세팅
+                self.entry_store.delete(0, tk.END)
+                self.entry_store.insert(0, store_name)
+                self.entry_location.delete(0, tk.END)
+                self.entry_location.insert(0, location)
+                self.entry_menu.delete(0, tk.END)
+                self.entry_menu.insert(0, menu)
+                self.entry_features.delete(0, tk.END)
+                self.entry_features.insert(0, features)
+                self.store_info = store_info
+
+                tel = store_info.get("tel", "")
+                addr = store_info.get("address", "")
+                self.lbl_store_fetch_status.config(
+                    text=f"✅ 매장 식별 완료: {store_name} ({location}) | 📞 {tel}",
+                    fg="#03C75A"
+                )
+                self.log(f"🎉 [매장 정보 자동 인식 완료]\n- 상호명: {store_name}\n- 위치: {location}\n- 대표메뉴: {menu}\n- 주소: {addr}\n- 전화번호: {tel}")
+
+                # 2. 사진 자동 수집 및 알맞은 파일명으로 저장
+                self.btn_resolve_address.config(text="📷 맞춤 사진 수집 중...")
+                self.lbl_photo_info.config(text=f"네이버에서 '{location} {store_name}' 실사 사진 수집 및 스마트 네이밍 중...", fg="#0066cc")
+                self.log(f"📸 [사진 자동 수집 & 스마트 네이밍] 글 서사 순서(외관->내부->메뉴판->상차림->{menu})에 맞추어 알맞은 파일명으로 12~14장 실사 수집 시작...")
+
+                photos = store_crawler.download_store_photos(
+                    store_name=store_name,
+                    location=location,
+                    menu=menu,
+                    max_count=14,
+                    status_callback=self.log,
+                    force_refresh=True
+                )
+
+                if photos:
+                    self.photo_paths = photos
+                    self.custom_photos_selected = False
+                    self.photo_mode.set("auto")
+                    self.lbl_photo_info.config(
+                        text=f"✅ [주소 수집 완료] 실사 사진 {len(self.photo_paths)}장(외관+내부+메뉴판+상차림+음식) 알맞은 이름으로 준비 완료!",
+                        fg="#03C75A"
+                    )
+                    self.log(f"🎉 [준비 완료] 주소 하나로 상호명, 위치, 대표메뉴, 매장정보와 함께 {len(self.photo_paths)}장의 알맞은 이름의 실사 사진이 모두 세팅되었습니다!\n👉 아래 [🚀 네이버 블로그에 바로 작성하기]를 누르시면 글과 사진이 100% 매칭되어 자동 작성됩니다.")
+                else:
+                    self.log("⚠️ 사진 수집을 완료하지 못했습니다. 기존 기본 샘플을 활용합니다.")
+            except Exception as e:
+                self.log(f"⚠️ 주소 분석 및 사진 수집 중 오류: {e}")
+            finally:
+                self.btn_resolve_address.config(state="normal", text="⚡ 주소로 사진&정보 원스톱 수집")
+
+        threading.Thread(target=task, daemon=True).start()
+
     def on_auto_download_photos(self):
         """네이버 이미지 검색에서 실제 식당 사진 최대 14장 다운로드"""
         store = self.entry_store.get().strip()
         location = self.entry_location.get().strip()
+        menu = self.entry_menu.get().strip()
         if not store:
             messagebox.showwarning("식당 상호명 필요", "먼저 식당 상호명을 입력해주세요.")
             return
@@ -600,7 +704,7 @@ class NaverBlogApp(tk.Tk):
             self.lbl_photo_info.config(text="네이버에서 외관·내부·메뉴·상차림·음식 실사 검색 중...", fg="#0066cc")
             self.log(f"네이버에서 '{location} {store}' 외관/내부/메뉴판/상차림/음식 실사 사진 12~14장을 수집합니다...")
             try:
-                photos = store_crawler.download_store_photos(store, location, max_count=14, status_callback=self.log, force_refresh=True)
+                photos = store_crawler.download_store_photos(store, location, menu=menu, max_count=14, status_callback=self.log, force_refresh=True)
                 if photos:
                     self.photo_paths = photos
                     self.custom_photos_selected = False
@@ -810,7 +914,7 @@ class NaverBlogApp(tk.Tk):
                 mode_photo = self.photo_mode.get()
                 if mode_photo == "auto":
                     self.log(f"📸 [1단계: 자동생성] 네이버에서 '{location} {store}' 글자/워터마크 없는 찐 실사 12~14장 자동 수집 중...")
-                    photos = store_crawler.download_store_photos(store, location, max_count=14, status_callback=self.log)
+                    photos = store_crawler.download_store_photos(store, location, menu=menu, max_count=14, status_callback=self.log)
                     if photos:
                         self.photo_paths = photos
                         self.lbl_photo_info.config(text=f"현재 모드: [자동생성] 네이버 실사 {len(self.photo_paths)}장 준비 완료!", fg="#03C75A")

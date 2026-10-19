@@ -223,6 +223,188 @@ def fetch_store_details(store_name, location=""):
     return info
 
 
+def resolve_store_from_address_or_url(input_query, status_callback=print):
+    """
+    사용자가 입력한 주소(도로명/지번) 또는 URL(네이버 지도/플레이스 링크)로부터
+    상호명, 위치, 대표메뉴, 특징 및 매장 상세 정보를 자동 판별
+    반환: dict(store_name, location, menu, features, store_info)
+    """
+    raw_query = input_query.strip()
+    if not raw_query:
+        return None
+
+    status_callback(f"🌐 [주소/링크 분석] 입력값: '{raw_query}'")
+    
+    # 1. URL 형태인 경우 분석
+    if raw_query.startswith("http://") or raw_query.startswith("https://"):
+        target_url = raw_query
+        if "naver.me" in target_url or "bit.ly" in target_url:
+            status_callback("🔗 단축 URL 원본 주소 추적 중...")
+            try:
+                req = urllib.request.Request(target_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    target_url = resp.geturl()
+            except urllib.error.HTTPError as e:
+                loc = e.headers.get('Location')
+                if loc:
+                    target_url = loc
+            except Exception:
+                pass
+        
+        parsed = urllib.parse.urlparse(target_url)
+        qs = urllib.parse.parse_qs(parsed.query)
+        store_cand = ""
+        if "query" in qs:
+            store_cand = qs["query"][0]
+        elif "q" in qs:
+            store_cand = qs["q"][0]
+        
+        if not store_cand:
+            m_id = re.search(r'(?:place|restaurant)/(\d+)', target_url)
+            if m_id:
+                store_cand = m_id.group(1)
+        
+        search_target = store_cand if store_cand else target_url
+    else:
+        search_target = raw_query
+
+    # 2. 네이버 포털 통합검색을 통해 장소/상호명 정확 추출
+    search_url = f"https://search.naver.com/search.naver?query={urllib.parse.quote(search_target)}"
+    status_callback("🔍 네이버 포털에서 매장 정보 및 상호명 탐색 중...")
+    
+    found_store = ""
+    found_category = ""
+    found_address = ""
+    found_phone = ""
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                executable_path=CHROME_PATH,
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"]
+            )
+            page = browser.new_page()
+            page.goto(search_url, wait_until="domcontentloaded", timeout=12000)
+            page.wait_for_timeout(2000)
+            
+            # A. '이 주소의 장소' 박스 탐색 (도로명 주소 입력 시)
+            boxes = page.locator('.place_section, .api_subject_bx, .sc_new').all()
+            for b in boxes:
+                txt = b.inner_text().strip()
+                if "이 주소의 장소" in txt:
+                    lines = [l.strip() for l in txt.split("\n") if l.strip()]
+                    for idx, line in enumerate(lines):
+                        if line == "이 주소의 장소" and idx + 1 < len(lines):
+                            cand_line = lines[idx + 1]
+                            # 업종 분리
+                            cat_match = re.search(r'(카페,디저트|베이커리|만두|칼국수,만두|칼국수|냉면|육류,고기요리|고기요리|한식|일식|양식|중식|음식점|주점|카페|디저트|요리|바|호프)$', cand_line)
+                            if cat_match:
+                                found_category = cat_match.group(1)
+                                found_store = cand_line[:cat_match.start()].strip()
+                            else:
+                                found_store = cand_line
+                            found_store = re.sub(r'\s+[가-힣0-9]+점$', '', found_store)
+                            
+                            for nxt_idx in range(idx + 2, min(idx + 5, len(lines))):
+                                nxt_line = lines[nxt_idx]
+                                m_tel = re.search(r'(0\d{1,2}-\d{3,4}-\d{4})', nxt_line)
+                                if m_tel:
+                                    found_phone = m_tel.group(1)
+                                if any(r in nxt_line for r in ["서울", "경기", "인천", "부산", "대구", "광주", "대전", "울산", "세종", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"]):
+                                    found_address = nxt_line
+                            break
+                    if found_store:
+                        break
+
+            # B. 플레이스 일반 타이틀 탐색 (.Fc1rA, .GHAhO, .tit 등)
+            if not found_store:
+                tit_els = page.locator('.place_section .Fc1rA, .place_section .GHAhO, .api_subject_bx .tit').all()
+                for t in tit_els:
+                    text_val = t.inner_text().strip()
+                    if text_val and text_val not in ["플레이스", "지도", "길찾기", "MY플레이스"]:
+                        found_store = re.sub(r'\s+[가-힣0-9]+점$', '', text_val)
+                        break
+
+            # C. 주소 추출
+            if not found_address:
+                m_addr = re.search(r'([가-힣]+(?:시|도)?\s*[가-힣]+(?:구|군|시)\s*[가-힣0-9]+(?:로|길|동|리)?(?:\s*\d+[\-\d]*)?)', raw_query)
+                if m_addr:
+                    found_address = m_addr.group(1).strip()
+            
+            browser.close()
+    except Exception as e:
+        status_callback(f"⚠️ 주소 분석 중 일시적 오류: {e}")
+
+    if not found_store:
+        words = [w for w in re.split(r'[\s,/]+', raw_query) if len(w) >= 2]
+        found_store = words[-1] if words else "맛집"
+
+    # 지역/위치명 추출 (구/동 또는 핫플 키워드 매핑)
+    location_cand = ""
+    addr_to_check = f"{found_address} {raw_query}"
+    loc_patterns = [
+        ("용산", "용리단길"), ("성수", "성수동"), ("을지로", "을지로"), 
+        ("신당", "신당동"), ("안국", "안국 북촌"), ("북촌", "안국 북촌"),
+        ("압구정", "압구정"), ("신사", "가로수길"), ("연남", "연남동"),
+        ("망원", "망원동"), ("한남", "한남동"), ("송파", "송리단길"),
+        ("잠실", "송리단길"), ("종로", "종로"), ("강남", "강남역"),
+        ("홍대", "홍대"), ("여의도", "여의도"), ("해운대", "해운대"), ("광안리", "광안리")
+    ]
+    for key, loc_name in loc_patterns:
+        if key in addr_to_check:
+            location_cand = loc_name
+            break
+    if not location_cand:
+        m_gu = re.search(r'([가-힣]+(?:구|군|시))', addr_to_check)
+        location_cand = m_gu.group(1) if m_gu else "서울"
+
+    status_callback(f"✅ 매장 식별 완료: 상호명='{found_store}', 지역='{location_cand}'")
+
+    # 3. 매장 상세 정보 수집
+    status_callback(f"📋 '{location_cand} {found_store}'의 상세 매장 정보 및 대표 메뉴 수집 중...")
+    details = fetch_store_details(found_store, location_cand)
+    if found_address and details.get("address") == "매장 위치 정보 참조":
+        details["address"] = found_address
+    if found_phone and details.get("tel") == "등록된 전화번호 없음":
+        details["tel"] = found_phone
+
+    # 4. 대표 메뉴 결정
+    menu_cand = ""
+    if details.get("popular_menus"):
+        menu_cand = ", ".join(details["popular_menus"][:3])
+    elif found_category:
+        if any(k in found_category for k in ["베이커리", "카페", "디저트"]):
+            menu_cand = "시그니처 크루아상, 페이스트리, 아메리카노"
+        elif "만두" in found_category:
+            menu_cand = "칼만두, 손만두, 만두전골"
+        elif "칼국수" in found_category:
+            menu_cand = "손칼국수, 수육, 보쌈"
+        elif any(k in found_category for k in ["고기", "육류", "삼겹", "구이"]):
+            menu_cand = "숙성 삼겹살, 목살구이, 된장찌개"
+        elif "냉면" in found_category:
+            menu_cand = "물냉면, 비빔냉면, 만두"
+        else:
+            menu_cand = "대표 시그니처 요리, 인기 세트 메뉴"
+    else:
+        menu_cand = "대표 인기 시그니처 메뉴"
+
+    # 5. 특징 / 꿀팁
+    features_cand = ""
+    if details.get("ai_summary"):
+        features_cand = details["ai_summary"]
+    else:
+        features_cand = f"현지인과 여행객이 함께 찾는 {location_cand}의 핫플레이스 찐맛집"
+
+    return {
+        "store_name": found_store,
+        "location": location_cand,
+        "menu": menu_cand,
+        "features": features_cand,
+        "store_info": details
+    }
+
+
 def crawl_live_trending_hotplaces(area="성수동", max_count=10):
     """
     네이버에서 실시간 최신 핫플레이스를 검색 크롤링하여 (상호, 위치, 대표메뉴, 특징) 반환
@@ -291,16 +473,19 @@ def crawl_live_trending_hotplaces(area="성수동", max_count=10):
         
     return results[:max_count]
 
-def download_store_photos(store_name, location="", max_count=14, status_callback=print, force_refresh=False):
+def download_store_photos(store_name, location="", menu="", max_count=14, status_callback=print, force_refresh=False):
     """
     네이버 이미지 검색에서 실제 맛집의 다양한 실사 사진을 카테고리별로 자동 수집 (12~14장)
     - 글자/워터마크/카드뉴스 텍스트 완전 배제 (100% 클린 실사 필터링)
-    - 이상한 수족관 반사 / 무관한 사진 배제 (간판, 입구, 매장 내부, 실제 음식 집중)
-    - 외관(2장), 내부(2장), 메뉴판(2장), 상차림(2장), 음식(6장)으로 엄격한 순서와 카테고리 유지
+    - 외관(2장), 내부(2장), 메뉴판(2장), 상차림(2장), 대표 음식(6장)으로 엄격한 순서와 알맞은 파일명 유지
     """
     safe_name = re.sub(r'[\/\\:\*\?"<>\|]', '_', f"{location}_{store_name}").strip()
     target_dir = os.path.join(DOWNLOADS_ROOT, safe_name)
     os.makedirs(target_dir, exist_ok=True)
+
+    clean_menu = re.split(r'[,/&+\s]+', menu)[0].strip() if menu else "대표음식"
+    if clean_menu in ["음식", "메뉴", "대표메뉴", "시그니처", "인기메뉴"]:
+        clean_menu = "시그니처"
 
     if not force_refresh:
         existing_files = [
@@ -328,7 +513,7 @@ def download_store_photos(store_name, location="", max_count=14, status_callback
         ("내부", [f"{store_name} 내부 인테리어", f"{location} {store_name} 매장 내부 좌석"], 2, False),
         ("메뉴판", [f"{store_name} 메뉴판 가격표", f"{location} {store_name} 차림표"], 2, True),
         ("상차림", [f"{store_name} 상차림 반찬", f"{location} {store_name} 기본 상차림"], 2, False),
-        ("음식", [f"{store_name} 대표 음식", f"{location} {store_name} 맛집 메뉴", f"{location} {store_name}"], 6, False),
+        ("음식", [f"{store_name} {clean_menu}", f"{store_name} 대표 음식", f"{location} {store_name} {clean_menu}"], 6, False),
     ]
 
     saved_paths = []
@@ -372,7 +557,30 @@ def download_store_photos(store_name, location="", max_count=14, status_callback
                                 if not clean:
                                     continue
 
-                                fname = os.path.join(target_dir, f"{file_idx:02d}_{cat_name}_{cat_count + 1}.jpg")
+                                if cat_name == "외관":
+                                    fname = os.path.join(target_dir, f"{file_idx:02d}_외관_{cat_count + 1}.jpg")
+                                elif cat_name == "내부":
+                                    fname = os.path.join(target_dir, f"{file_idx:02d}_내부_인테리어_{cat_count + 1}.jpg")
+                                elif cat_name == "메뉴판":
+                                    fname = os.path.join(target_dir, f"{file_idx:02d}_메뉴판_{cat_count + 1}.jpg")
+                                elif cat_name == "상차림":
+                                    fname = os.path.join(target_dir, f"{file_idx:02d}_상차림_{cat_count + 1}.jpg")
+                                elif cat_name == "음식":
+                                    if cat_count == 0:
+                                        fname = os.path.join(target_dir, f"{file_idx:02d}_{clean_menu}.jpg")
+                                    elif cat_count == 1:
+                                        fname = os.path.join(target_dir, f"{file_idx:02d}_{clean_menu}_디테일.jpg")
+                                    elif cat_count == 2:
+                                        fname = os.path.join(target_dir, f"{file_idx:02d}_음식_{clean_menu}_한점.jpg")
+                                    elif cat_count == 3:
+                                        fname = os.path.join(target_dir, f"{file_idx:02d}_음식_{clean_menu}_클로즈업.jpg")
+                                    elif cat_count == 4:
+                                        fname = os.path.join(target_dir, f"{file_idx:02d}_음식_{clean_menu}_조합.jpg")
+                                    else:
+                                        fname = os.path.join(target_dir, f"{file_idx:02d}_마무리.jpg")
+                                else:
+                                    fname = os.path.join(target_dir, f"{file_idx:02d}_{cat_name}_{cat_count + 1}.jpg")
+
                                 with open(fname, 'wb') as f:
                                     f.write(img_data)
 
@@ -408,7 +616,7 @@ def download_store_photos(store_name, location="", max_count=14, status_callback
                                 if not clean:
                                     continue
 
-                                fname = os.path.join(target_dir, f"{file_idx:02d}_추가음식_{extra_c + 1}.jpg")
+                                fname = os.path.join(target_dir, f"{file_idx:02d}_음식_{clean_menu}_{extra_c + 1}.jpg")
                                 with open(fname, 'wb') as f:
                                     f.write(img_data)
                                 saved_paths.append(fname)
