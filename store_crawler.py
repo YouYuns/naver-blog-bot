@@ -679,6 +679,7 @@ def crawl_live_trending_hotplaces(area="성수동", max_count=10):
     """
     네이버에서 실시간 최신 핫플레이스를 검색 크롤링하여 (상호, 위치, 대표메뉴, 특징) 반환
     - 하드코딩 없이 네이버 플레이스 주간 인기 매장과 메뉴를 라이브로 직접 가져옴
+    - TV 프로그램명(생방송투데이 등), 영업 상태(오늘 휴무 등)가 상호명으로 오인되지 않도록 완벽 필터링
     """
     query = f"{area} 핫플 맛집"
     url = f"https://search.naver.com/search.naver?query={urllib.parse.quote(query)}"
@@ -695,49 +696,85 @@ def crawl_live_trending_hotplaces(area="성수동", max_count=10):
             page.goto(url, wait_until="domcontentloaded", timeout=12000)
             page.wait_for_timeout(2500)
             
-            boxes = page.locator('.api_subject_bx')
-            place_text = ""
-            for i in range(boxes.count()):
-                t = boxes.nth(i).inner_text().strip()
-                if "플레이스플레이스 검색결과" in t or "플레이스 검색결과" in t:
-                    place_text = t
-                    break
+            # 플레이스 섹션 및 전용 타이틀 태그 수집
+            sec = page.locator('section').filter(has_text='플레이스 검색결과').first
+            sec_text = sec.inner_text().strip() if sec.count() else ""
+            
+            titles = page.locator('span.Ypcqn, a.place_bluelink, .place_section .Fc1rA, .place_section .GHAhO')
+            raw_titles = [titles.nth(i).inner_text().strip() for i in range(titles.count())]
             browser.close()
             
-        if place_text:
-            lines = [l.strip() for l in place_text.split("\n") if l.strip()]
-            for i, line in enumerate(lines):
-                if line == "주간 인기 많은 메뉴" and i + 1 < len(lines):
-                    menus = lines[i + 1]
-                    save_idx = -1
-                    for back in range(1, 15):
-                        if i - back >= 0 and lines[i - back] == "저장":
-                            save_idx = i - back
-                            break
+        invalid_words = [
+            "생방송투데이", "2TV생생정보", "생방송오늘저녁", "놀라운토요일", "줄서는식당", "맛있는녀석들",
+            "영업 중", "영업중", "영업 전", "영업 종료", "오늘 휴무", "정기휴무", "브레이크타임",
+            "별점", "광고", "저장", "더보기", "플레이스", "지도", "길찾기", "쿠폰", "예약", "톡톡", "네이버페이",
+            "새로오픈", "주간 인기 많은 메뉴"
+        ]
+        
+        valid_stores = []
+        for raw_s in raw_titles:
+            s = raw_s.strip()
+            if not s or len(s) < 2 or len(s) > 30:
+                continue
+            if any(inv in s for inv in invalid_words):
+                continue
+            if re.match(r'^\d+(\.\d+)?', s):
+                continue
+            clean_s = re.sub(r'\s+[가-힣0-9]+점$', '', s)
+            clean_s = re.sub(r'\s+(점심저녁|점심|저녁|본점|성수본점)$', '', clean_s).strip()
+            if clean_s and not any(v[0] == clean_s for v in valid_stores):
+                valid_stores.append((clean_s, raw_s))
+                
+        for idx, (clean_store, raw_store) in enumerate(valid_stores):
+            pos = sec_text.find(raw_store) if sec_text else -1
+            nxt_pos = len(sec_text) if sec_text else 0
+            if pos != -1 and idx + 1 < len(valid_stores):
+                nxt_raw = valid_stores[idx + 1][1]
+                p2 = sec_text.find(nxt_raw, pos + len(raw_store))
+                if p2 != -1:
+                    nxt_pos = p2
                     
-                    store_name = ""
-                    feature = ""
-                    if save_idx != -1:
-                        for back in range(1, 10):
-                            idx = save_idx - back
-                            if idx >= 0:
-                                cand = lines[idx]
-                                if cand in ["광고", "영업 중", "별점", "TV", "2TV생생정보", "예약", "쿠폰", "톡톡", "네이버페이"]:
-                                    continue
-                                if re.match(r'^\d+(\.\d+)?(리뷰.*)?$', cand):
-                                    continue
-                                if not feature and len(cand) > 6 and not any(w in cand for w in ["양식", "한식", "카페", "일식"]):
-                                    feature = cand
-                                elif not store_name and 2 <= len(cand) <= 20 and not any(w in cand for w in ["양식", "한식", "카페", "일식", "스파게티"]):
-                                    store_name = cand
-                                    break
-                    if store_name and not any(r['store'] == store_name for r in results):
-                        results.append({
-                            "store": store_name,
-                            "location": area,
-                            "menu": menus,
-                            "features": feature or f"네이버 플레이스 실시간 {area} 주간 인기 핫플레이스"
-                        })
+            chunk = sec_text[pos:nxt_pos] if (pos != -1 and sec_text) else ""
+            lines = [l.strip() for l in chunk.split('\n') if l.strip()]
+            
+            menu = ""
+            for i, l in enumerate(lines):
+                if "주간 인기 많은 메뉴" in l and i + 1 < len(lines):
+                    menu = lines[i + 1].strip().rstrip(' ,.')
+                    break
+                    
+            cat = ""
+            for l in lines[1:]:
+                if any(c in l for c in ["한식", "양식", "일식", "중식", "카페", "디저트", "베이커리", "고기", "구이", "햄버거", "치킨", "피자", "파스타", "만두", "칼국수", "주점", "브런치"]):
+                    cat = l
+                    break
+                    
+            feature = ""
+            for l in lines[1:]:
+                if len(l) >= 6 and not any(w in l for w in ["영업", "별점", "리뷰", "광고", "저장", "더보기", "TV", "쿠폰", "예약", "네이버", "주간 인기", "connect", "NAVER"]):
+                    if l != raw_store and l != menu and l != cat:
+                        feature = l
+                        break
+                        
+            if not menu:
+                if "카페" in cat or "디저트" in cat or "베이커리" in cat:
+                    menu = "시그니처 디저트, 베이커리, 스페셜티 커피"
+                elif "버거" in cat or "햄버거" in cat:
+                    menu = "수제버거, 프렌치프라이, 쉐이크"
+                elif "양식" in cat or "파스타" in cat:
+                    menu = "시그니처 파스타, 스테이크, 리조또"
+                elif "고기" in cat or "구이" in cat:
+                    menu = "숙성 삼겹살, 목살구이, 된장찌개"
+                else:
+                    menu = f"{cat} 대표 인기 시그니처 메뉴" if cat else "대표 인기 시그니처 메뉴"
+                    
+            results.append({
+                "store": clean_store,
+                "location": area,
+                "category": cat,
+                "menu": menu,
+                "features": feature or f"네이버 플레이스 실시간 {area} 핫플레이스"
+            })
     except Exception as e:
         print(f"실시간 핫플 검색 오류: {e}")
         

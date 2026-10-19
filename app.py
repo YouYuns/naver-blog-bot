@@ -236,19 +236,12 @@ class NaverBlogApp(tk.Tk):
         row_btns = tk.Frame(photo_group, bg="#F4F6F9")
         row_btns.pack(fill="x", pady=2)
 
-        self.btn_choose_folder = tk.Button(
-            row_btns, text="📂 사진 폴더 선택", 
-            font=("Malgun Gothic", 9, "bold"), bg="#E0E0E0", relief="groove", padx=10, pady=3, cursor="hand2",
-            command=self.on_select_photo_folder
+        self.btn_load_photos = tk.Button(
+            row_btns, text="📷 내 사진 불러오기 (폴더/파일)", 
+            font=("Malgun Gothic", 9, "bold"), bg="#E0E0E0", relief="groove", padx=12, pady=3, cursor="hand2",
+            command=self.on_load_my_photos
         )
-        self.btn_choose_folder.pack(side="left", padx=(0, 6))
-
-        self.btn_choose_files = tk.Button(
-            row_btns, text="🖼️ 사진 파일 복수 선택", 
-            font=("Malgun Gothic", 9, "bold"), bg="#E0E0E0", relief="groove", padx=10, pady=3, cursor="hand2",
-            command=self.on_select_photo_files
-        )
-        self.btn_choose_files.pack(side="left", padx=4)
+        self.btn_load_photos.pack(side="left", padx=(0, 6))
 
         self.btn_open_download_folder = tk.Button(
             row_btns, text="📁 다운로드 폴더 열기", 
@@ -725,6 +718,20 @@ class NaverBlogApp(tk.Tk):
                 self.btn_fetch_store.config(state="normal", text="🔍 실제 가게 정보 검색 (전화/영업시간/주차/휴무)")
 
         threading.Thread(target=task, daemon=True).start()
+
+    def on_load_my_photos(self):
+        """하나의 통합 버튼으로 폴더 전체 또는 개별 파일 복수 선택 지원"""
+        ans = messagebox.askyesnocancel(
+            "사진 불러오기 방식 선택",
+            "어떤 방식으로 사진을 불러오시겠습니까?\n\n"
+            "• [예] : 폴더 선택 (해당 폴더 내 모든 사진 일괄 등록)\n"
+            "• [아니오] : 파일 직접 선택 (원하는 사진들만 쏙쏙 선택)\n"
+            "• [취소] : 닫기"
+        )
+        if ans is True:
+            self.on_select_photo_folder()
+        elif ans is False:
+            self.on_select_photo_files()
 
     def on_select_photo_folder(self):
         folder = filedialog.askdirectory(title="맛집 사진이 있는 폴더를 선택하세요")
