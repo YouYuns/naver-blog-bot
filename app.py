@@ -237,9 +237,9 @@ class NaverBlogApp(tk.Tk):
         row_btns.pack(fill="x", pady=2)
 
         self.btn_load_photos = tk.Button(
-            row_btns, text="📷 내 사진 불러오기 (복수 선택 / Ctrl+A 전체선택)", 
-            font=("Malgun Gothic", 9, "bold"), bg="#E0E0E0", relief="groove", padx=12, pady=4, cursor="hand2",
-            command=self.on_load_my_photos
+            row_btns, text="🖼️ 사진 복수 선택", 
+            font=("Malgun Gothic", 9, "bold"), bg="#E0E0E0", relief="groove", padx=14, pady=4, cursor="hand2",
+            command=self.on_select_photo_files
         )
         self.btn_load_photos.pack(side="left", padx=(0, 6))
 
@@ -260,7 +260,7 @@ class NaverBlogApp(tk.Tk):
 
         lbl_hint = tk.Label(
             photo_group,
-            text="💡 사진 선택 팁: 파일 선택 창에서 Ctrl+A를 누르면 해당 폴더 내 모든 사진을 1초 만에 일괄 선택할 수 있습니다. (파일명 순서대로 본문과 1:1 자동 매칭)",
+            text="💡 사진 복수 선택 팁: 파일 선택 창에서 여러 장을 선택하거나, Ctrl+A를 누르면 해당 폴더 내 모든 사진을 한 번에 불러올 수 있습니다.",
             font=("Malgun Gothic", 8), fg="#555555", bg="#F4F6F9"
         )
         lbl_hint.pack(anchor="w", pady=(2, 0))
