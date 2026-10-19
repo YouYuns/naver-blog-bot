@@ -223,15 +223,280 @@ def fetch_store_details(store_name, location=""):
     return info
 
 
+def extract_naver_blog_params(url):
+    m = re.search(r'blog\.naver\.com/(?:m/)?([a-zA-Z0-9_-]+)/(\d+)', url)
+    if m:
+        return m.group(1), m.group(2)
+    m = re.search(r'blogId=([a-zA-Z0-9_-]+).*?[&?]logNo=(\d+)', url)
+    if m:
+        return m.group(1), m.group(2)
+    m = re.search(r'logNo=(\d+).*?[&?]blogId=([a-zA-Z0-9_-]+)', url)
+    if m:
+        return m.group(2), m.group(1)
+    return None, None
+
+
+def classify_blog_photo_context(ctx_lower, idx, total, known_menus=None):
+    if any(k in ctx_lower for k in ["메뉴판", "차림표", "가격표", "주문서", "키오스크", "빌지", "주문메뉴"]):
+        return "메뉴판"
+
+    if any(k in ctx_lower for k in ["웨이팅", "대기", "캐치테이블", "테이블링", "조기마감", "줄서"]):
+        return "웨이팅"
+
+    if known_menus:
+        for m in known_menus:
+            clean_m = re.sub(r'[^가-힣a-zA-Z0-9]', '', m)
+            if len(clean_m) >= 2 and clean_m.lower() in ctx_lower:
+                return f"음식_{clean_m}"
+
+    food_keywords = [
+        ("로스카츠", "음식_로스카츠"), ("히레카츠", "음식_히레카츠"), ("카츠산도", "음식_카츠산도"),
+        ("돈카츠", "음식_돈카츠"), ("돈가스", "음식_돈가스"), ("칼만두", "음식_칼만두"),
+        ("손만두", "음식_손만두"), ("만두전골", "음식_만두전골"), ("크루아상", "음식_크루아상"),
+        ("페이스트리", "음식_페이스트리"), ("삼겹살", "음식_삼겹살"), ("목살", "음식_목살"),
+        ("파스타", "음식_파스타"), ("피자", "음식_피자"), ("스테이크", "음식_스테이크")
+    ]
+    for kw, cat_name in food_keywords:
+        if kw in ctx_lower:
+            return cat_name
+
+    if any(k in ctx_lower for k in ["스프", "스읍", "국물", "상차림", "기본찬", "반찬", "세팅", "소스", "양념장", "김치", "깍두기", "장국", "밥과 국"]):
+        return "상차림"
+
+    if any(k in ctx_lower for k in ["내부", "인테리어", "좌석", "다찌석", "다찌", "테이블", "자리", "착석", "착~석", "오픈키친", "홀", "조명", "분위기"]):
+        return "내부_인테리어"
+
+    if any(k in ctx_lower for k in ["외관", "간판", "입구", "전경", "도착", "외부", "건물", "찾아가는", "파사드", "주소"]):
+        return "외관"
+
+    if any(k in ctx_lower for k in ["마무리", "총평", "완식", "다먹음", "영수증", "빈접시", "클리어", "배불"]):
+        if idx >= total - 3:
+            return "마무리"
+
+    if idx <= 2:
+        return "외관"
+    elif idx <= 5:
+        return "내부_인테리어"
+    elif idx >= total - 1:
+        return "마무리"
+    else:
+        return "음식"
+
+
+def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
+    """
+    네이버 블로그 포스팅 URL로부터 상호명, 주소, 위치, 메뉴, 특징을 파악하고
+    포스팅 내의 실제 고화질 실사 사진들을 순서 및 문맥에 맞게 스마트 네이밍하여 다운로드
+    """
+    status_callback(f"📖 [블로그 정밀 분석] 블로그 포스팅 원본 주소 분석 중: {blog_url}")
+    blog_id, log_no = extract_naver_blog_params(blog_url)
+    if not blog_id or not log_no:
+        status_callback("⚠️ 네이버 블로그 URL 형식(blog.naver.com/아이디/글번호)을 확인해주세요.")
+        return None
+
+    postview_url = f"https://blog.naver.com/PostView.naver?blogId={blog_id}&logNo={log_no}"
+    
+    found_store = ""
+    found_address = ""
+    post_title = ""
+    all_post_text = ""
+    photo_items = []
+    
+    status_callback("🌐 블로그 포스트 및 실사 이미지 로딩 중...")
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                executable_path=CHROME_PATH,
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"]
+            )
+            page = browser.new_page()
+            page.goto(postview_url, wait_until="domcontentloaded", timeout=15000)
+            page.wait_for_timeout(1500)
+            
+            # 1. 글 제목 추출
+            t_el = page.locator(".se-title-text, .se_title, .title_area, h3.se_textarea").first
+            if t_el.count():
+                post_title = t_el.inner_text().strip()
+            
+            # 2. 첨부된 네이버 지도/플레이스 위젯 탐색
+            map_boxes = page.locator(".se-map-info, .se-place-map, .se-module-map, .se-places-map").all()
+            for mb in map_boxes:
+                mtxt = mb.inner_text().strip()
+                if mtxt:
+                    lines = [l.strip() for l in mtxt.split("\n") if l.strip()]
+                    if lines:
+                        cand_name = lines[0]
+                        cand_name = re.sub(r'\s+[가-힣0-9]+점$', '', cand_name).strip()
+                        if cand_name and not found_store:
+                            found_store = cand_name
+                        for l in lines[1:]:
+                            if any(r in l for r in ["서울", "경기", "인천", "부산", "대구", "광주", "대전", "울산", "세종", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"]):
+                                found_address = l
+                                break
+            
+            # 3. 레이지 로딩된 이미지들을 위해 페이지 스크롤 다운
+            status_callback("📸 블로그 본문 실사 사진 스크롤 수집 중...")
+            for _ in range(8):
+                page.mouse.wheel(0, 3000)
+                page.wait_for_timeout(300)
+                
+            # 4. 본문 컴포넌트 순회 (텍스트 및 이미지 추출)
+            modules = page.locator(".se-component").all()
+            prev_text = ""
+            accumulated_texts = []
+            
+            for m in modules:
+                txt = m.inner_text().strip()
+                if txt:
+                    accumulated_texts.append(txt)
+                
+                img = m.locator("img").first
+                if img.count():
+                    src = img.get_attribute("src") or img.get_attribute("data-lazy-src") or ""
+                    if "postfiles.pstatic.net" in src or "blogfiles.pstatic.net" in src:
+                        # 고화질 원본 해상도(w966) 강제 적용
+                        high_res_src = src.split("?")[0] + "?type=w966"
+                            
+                        cap_el = m.locator(".se-caption, .se-image-caption").first
+                        caption = cap_el.inner_text().strip() if cap_el.count() else ""
+                        context_txt = f"{caption} {prev_text}".strip()
+                        
+                        photo_items.append({
+                            "src": high_res_src,
+                            "context": context_txt
+                        })
+                else:
+                    if txt and len(txt) > 2:
+                        prev_text = txt[:200]
+                        
+            all_post_text = "\n".join(accumulated_texts)
+            browser.close()
+    except Exception as e:
+        status_callback(f"⚠️ 블로그 페이지 로드 중 오류: {e}")
+
+    # 5. 상호명 보정 (지도 위젯이 없었을 경우 글 제목/본문에서 추출)
+    if not found_store and post_title:
+        clean_t = re.sub(r'\[.*?\]|\(.*?\)', '', post_title)
+        words = [w for w in re.split(r'[\s,/]+', clean_t) if len(w) >= 2]
+        stopwords = ["맛집", "솔직후기", "후기", "내돈내산", "방문기", "웨이팅", "추천", "메뉴", "가격", "위치", "원격", "평일", "주말", "캐치테이블", "테이블링"]
+        cands = [w for w in words if w not in stopwords]
+        if cands:
+            found_store = cands[-1] if len(cands) > 1 else cands[0]
+            
+    if not found_store:
+        found_store = "추천맛집"
+
+    # 6. 위치/지역 판별
+    location_cand = ""
+    addr_to_check = f"{found_address} {post_title} {all_post_text[:500]}"
+    loc_patterns = [
+        ("광안리", "부산 광안리"), ("해운대", "부산 해운대"), ("서면", "부산 서면"),
+        ("용산", "용리단길"), ("성수", "성수동"), ("을지로", "을지로"), 
+        ("신당", "신당동"), ("안국", "안국 북촌"), ("북촌", "안국 북촌"),
+        ("압구정", "압구정"), ("신사", "가로수길"), ("연남", "연남동"),
+        ("망원", "망원동"), ("한남", "한남동"), ("송파", "송리단길"),
+        ("잠실", "송리단길"), ("종로", "종로"), ("강남", "강남역"),
+        ("홍대", "홍대"), ("여의도", "여의도"), ("수원", "수원 행궁동"),
+        ("행궁동", "수원 행궁동"), ("동탄", "동탄"), ("판교", "판교")
+    ]
+    for key, loc_name in loc_patterns:
+        if key in addr_to_check:
+            location_cand = loc_name
+            break
+            
+    if not location_cand:
+        m_gu = re.search(r'([가-힣]+(?:시|도)?\s*[가-힣]+(?:구|군|시))', addr_to_check)
+        location_cand = m_gu.group(1) if m_gu else "서울"
+
+    status_callback(f"✅ [블로그 정보 추출] 상호명: '{found_store}', 지역: '{location_cand}'")
+
+    # 7. 본문 텍스트에서 대표 메뉴 후보 발굴
+    menu_cands = []
+    common_menu_keywords = [
+        "로스카츠", "히레카츠", "특로스카츠", "카츠산도", "버크셔K", "치즈카츠", 
+        "크루아상", "페이스트리", "피스타치오", "아메리카노", "라떼", "에스프레소",
+        "칼만두", "손만두", "만두전골", "조랭이떡만둣국", "보쌈", "수육",
+        "삼겹살", "목살", "항정살", "가브리살", "된장찌개", "김치찌개", "볶음밥",
+        "파스타", "피자", "리조또", "스테이크", "샐러드"
+    ]
+    for kw in common_menu_keywords:
+        if kw in all_post_text and kw not in menu_cands:
+            menu_cands.append(kw)
+            if len(menu_cands) >= 3:
+                break
+                
+    menu_str = ", ".join(menu_cands) if menu_cands else "대표 시그니처 메뉴"
+
+    # 8. 네이버 검색을 통한 상세 정보(영업시간, 전화번호, 주차 등) 보강
+    status_callback(f"📋 '{location_cand} {found_store}'의 상세 매장 정보 조회 중...")
+    details = fetch_store_details(found_store, location_cand)
+    if found_address and details.get("address") == "매장 위치 정보 참조":
+        details["address"] = found_address
+    if details.get("popular_menus") and not menu_cands:
+        menu_str = ", ".join(details["popular_menus"][:3])
+
+    # 9. 실사 사진 다운로드 및 스마트 네이밍 저장
+    saved_photos = []
+    if photo_items:
+        safe_store = re.sub(r'[\\/*?:"<>|]', "", found_store).replace(" ", "_")
+        safe_loc = re.sub(r'[\\/*?:"<>|]', "", location_cand).replace(" ", "_")
+        target_dir = os.path.join(DOWNLOADS_ROOT, f"{safe_loc}_{safe_store}")
+        os.makedirs(target_dir, exist_ok=True)
+        
+        status_callback(f"💾 블로그 사진 {len(photo_items)}장 다운로드 및 스마트 네이밍 저장 중 -> {target_dir}")
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://blog.naver.com'
+        }
+        
+        cat_counts = {}
+        for i, item in enumerate(photo_items):
+            cat = classify_blog_photo_context(item["context"].lower(), i, len(photo_items), known_menus=menu_cands)
+            c_cnt = cat_counts.get(cat, 0) + 1
+            cat_counts[cat] = c_cnt
+            
+            fname = f"{len(saved_photos) + 1:02d}_{cat}_{c_cnt}.jpg"
+            fpath = os.path.join(target_dir, fname)
+            
+            try:
+                req = urllib.request.Request(item["src"], headers=headers)
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    img_data = resp.read()
+                if len(img_data) < 10000:  # 스티커/아이콘 등 10KB 미만 필터링
+                    continue
+                with open(fpath, "wb") as f:
+                    f.write(img_data)
+                saved_photos.append(fpath)
+            except Exception as e:
+                print(f"이미지 저장 오류 ({fname}): {e}")
+
+        status_callback(f"🎉 블로그 실사 {len(saved_photos)}장 다운로드 완료! (저장위치: {target_dir})")
+
+    features_cand = details.get("ai_summary", f"{location_cand}에서 높은 평점과 인기를 자랑하는 핫플레이스 찐맛집")
+
+    return {
+        "store_name": found_store,
+        "location": location_cand,
+        "menu": menu_str,
+        "features": features_cand,
+        "store_info": details,
+        "photos": saved_photos
+    }
+
+
 def resolve_store_from_address_or_url(input_query, status_callback=print):
     """
-    사용자가 입력한 주소(도로명/지번) 또는 URL(네이버 지도/플레이스 링크)로부터
+    사용자가 입력한 주소(도로명/지번) 또는 URL(네이버 지도/플레이스 링크/블로그 포스팅 링크)로부터
     상호명, 위치, 대표메뉴, 특징 및 매장 상세 정보를 자동 판별
-    반환: dict(store_name, location, menu, features, store_info)
+    반환: dict(store_name, location, menu, features, store_info, photos)
     """
     raw_query = input_query.strip()
     if not raw_query:
         return None
+
+    if raw_query.startswith("blog.naver.com") or raw_query.startswith("m.blog.naver.com"):
+        raw_query = "https://" + raw_query
 
     status_callback(f"🌐 [주소/링크 분석] 입력값: '{raw_query}'")
     
@@ -251,6 +516,10 @@ def resolve_store_from_address_or_url(input_query, status_callback=print):
             except Exception:
                 pass
         
+        # 블로그 포스팅 링크인 경우 즉시 블로그 전용 실사 수집기로 분기
+        if "blog.naver.com" in target_url:
+            return crawl_store_and_photos_from_blog(target_url, status_callback=status_callback)
+
         parsed = urllib.parse.urlparse(target_url)
         qs = urllib.parse.parse_qs(parsed.query)
         store_cand = ""
@@ -401,7 +670,8 @@ def resolve_store_from_address_or_url(input_query, status_callback=print):
         "location": location_cand,
         "menu": menu_cand,
         "features": features_cand,
-        "store_info": details
+        "store_info": details,
+        "photos": []
     }
 
 

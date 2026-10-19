@@ -153,13 +153,13 @@ class NaverBlogApp(tk.Tk):
         self.lbl_preset_status.pack(side="left")
         self.update_preset_status_label()
 
-        # 주소 또는 네이버 플레이스 링크 원클릭 자동완성 바
-        address_bar = tk.LabelFrame(info_group, text=" 📍 도로명 주소 또는 네이버 플레이스 링크로 1초 자동 완성 ", font=("Malgun Gothic", 9, "bold"), bg="#EBF3FB", fg="#0052cc", padx=8, pady=5)
+        # 주소, 네이버 플레이스 링크 또는 블로그 포스팅 링크 원클릭 자동완성 바
+        address_bar = tk.LabelFrame(info_group, text=" 📍 도로명 주소 / 네이버 플레이스 / 블로그 글 링크로 1초 자동 완성 & 사진 수집 ", font=("Malgun Gothic", 9, "bold"), bg="#EBF3FB", fg="#0052cc", padx=8, pady=5)
         address_bar.pack(fill="x", pady=(2, 8))
 
         tk.Label(address_bar, text="주소/링크:", font=("Malgun Gothic", 9, "bold"), bg="#EBF3FB", fg="#333").pack(side="left", padx=(0, 5))
         self.entry_address_or_url = ttk.Entry(address_bar, font=("Malgun Gothic", 9))
-        self.entry_address_or_url.insert(0, "예) 서울 종로구 북촌로2길 5-6 또는 네이버 플레이스 링크 URL")
+        self.entry_address_or_url.insert(0, "예) 서울 종로구 북촌로2길 5-6 또는 블로그 링크(https://blog.naver.com/...)")
         self.entry_address_or_url.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
         def on_addr_focus_in(event):
@@ -169,7 +169,7 @@ class NaverBlogApp(tk.Tk):
 
         self.btn_resolve_address = tk.Button(
             address_bar,
-            text="⚡ 주소로 사진&정보 원스톱 수집",
+            text="⚡ 주소/블로그로 사진&정보 원스톱 수집",
             font=("Malgun Gothic", 9, "bold"),
             bg="#0052cc",
             fg="white",
@@ -245,14 +245,6 @@ class NaverBlogApp(tk.Tk):
             command=self.on_photo_mode_changed
         )
         rb_auto.pack(side="left")
-
-        self.btn_auto_photos = tk.Button(
-            row_auto, text="⚡ 지금 즉시 사진 수집", 
-            font=("Malgun Gothic", 8, "bold"), bg="#03C75A", fg="white",
-            relief="flat", padx=8, pady=2, cursor="hand2",
-            command=self.on_auto_download_photos
-        )
-        self.btn_auto_photos.pack(side="left", padx=10)
 
         # 옵션 2: 내 사진 직접 넣기
         row_custom = tk.Frame(photo_group, bg="#F4F6F9")
@@ -658,35 +650,46 @@ class NaverBlogApp(tk.Tk):
                 )
                 self.log(f"🎉 [매장 정보 자동 인식 완료]\n- 상호명: {store_name}\n- 위치: {location}\n- 대표메뉴: {menu}\n- 주소: {addr}\n- 전화번호: {tel}")
 
-                # 2. 사진 자동 수집 및 알맞은 파일명으로 저장
-                self.btn_resolve_address.config(text="📷 맞춤 사진 수집 중...")
-                self.lbl_photo_info.config(text=f"네이버에서 '{location} {store_name}' 실사 사진 수집 및 스마트 네이밍 중...", fg="#0066cc")
-                self.log(f"📸 [사진 자동 수집 & 스마트 네이밍] 글 서사 순서(외관->내부->메뉴판->상차림->{menu})에 맞추어 알맞은 파일명으로 12~14장 실사 수집 시작...")
-
-                photos = store_crawler.download_store_photos(
-                    store_name=store_name,
-                    location=location,
-                    menu=menu,
-                    max_count=14,
-                    status_callback=self.log,
-                    force_refresh=True
-                )
-
-                if photos:
-                    self.photo_paths = photos
-                    self.custom_photos_selected = False
-                    self.photo_mode.set("auto")
+                # 2. 사진 세팅 (블로그 직수집 사진이 있으면 즉시 채택, 없으면 이미지 검색으로 보강)
+                blog_photos = res.get("photos", [])
+                if blog_photos:
+                    self.photo_paths = blog_photos
+                    self.custom_photos_selected = True
+                    self.photo_mode.set("custom")
                     self.lbl_photo_info.config(
-                        text=f"✅ [주소 수집 완료] 실사 사진 {len(self.photo_paths)}장(외관+내부+메뉴판+상차림+음식) 알맞은 이름으로 준비 완료!",
+                        text=f"✅ [블로그 실사 수집 완료] 사진 {len(self.photo_paths)}장(외관+내부+메뉴판+상차림+음식) 알맞은 이름으로 자동 저장 & 세팅 완료!",
                         fg="#03C75A"
                     )
-                    self.log(f"🎉 [준비 완료] 주소 하나로 상호명, 위치, 대표메뉴, 매장정보와 함께 {len(self.photo_paths)}장의 알맞은 이름의 실사 사진이 모두 세팅되었습니다!\n👉 아래 [🚀 네이버 블로그에 바로 작성하기]를 누르시면 글과 사진이 100% 매칭되어 자동 작성됩니다.")
+                    self.log(f"🎉 [블로그 사진 및 매장정보 원스톱 수집 완료]\n- 저장 폴더: {os.path.dirname(blog_photos[0])}\n- 수집 장수: {len(blog_photos)}장\n- 상호명: {store_name} | 대표메뉴: {menu}\n👉 아래 [🚀 네이버 블로그에 바로 작성하기]를 누르면 사진과 글이 100% 매칭되어 자동 작성됩니다.")
                 else:
-                    self.log("⚠️ 사진 수집을 완료하지 못했습니다. 기존 기본 샘플을 활용합니다.")
+                    self.btn_resolve_address.config(text="📷 맞춤 사진 수집 중...")
+                    self.lbl_photo_info.config(text=f"네이버에서 '{location} {store_name}' 실사 사진 수집 및 스마트 네이밍 중...", fg="#0066cc")
+                    self.log(f"📸 [사진 자동 수집 & 스마트 네이밍] 글 서사 순서(외관->내부->메뉴판->상차림->{menu})에 맞추어 알맞은 파일명으로 12~14장 실사 수집 시작...")
+
+                    photos = store_crawler.download_store_photos(
+                        store_name=store_name,
+                        location=location,
+                        menu=menu,
+                        max_count=14,
+                        status_callback=self.log,
+                        force_refresh=True
+                    )
+
+                    if photos:
+                        self.photo_paths = photos
+                        self.custom_photos_selected = False
+                        self.photo_mode.set("auto")
+                        self.lbl_photo_info.config(
+                            text=f"✅ [주소 수집 완료] 실사 사진 {len(self.photo_paths)}장(외관+내부+메뉴판+상차림+음식) 알맞은 이름으로 준비 완료!",
+                            fg="#03C75A"
+                        )
+                        self.log(f"🎉 [준비 완료] 주소 하나로 상호명, 위치, 대표메뉴, 매장정보와 함께 {len(self.photo_paths)}장의 알맞은 이름의 실사 사진이 모두 세팅되었습니다!\n👉 아래 [🚀 네이버 블로그에 바로 작성하기]를 누르시면 글과 사진이 100% 매칭되어 자동 작성됩니다.")
+                    else:
+                        self.log("⚠️ 사진 수집을 완료하지 못했습니다. 기존 기본 샘플을 활용합니다.")
             except Exception as e:
                 self.log(f"⚠️ 주소 분석 및 사진 수집 중 오류: {e}")
             finally:
-                self.btn_resolve_address.config(state="normal", text="⚡ 주소로 사진&정보 원스톱 수집")
+                self.btn_resolve_address.config(state="normal", text="⚡ 주소/블로그로 사진&정보 원스톱 수집")
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -700,7 +703,8 @@ class NaverBlogApp(tk.Tk):
             return
 
         def task():
-            self.btn_auto_photos.config(state="disabled", text="사진 수집 중...")
+            if hasattr(self, 'btn_auto_photos'):
+                self.btn_auto_photos.config(state="disabled", text="사진 수집 중...")
             self.lbl_photo_info.config(text="네이버에서 외관·내부·메뉴·상차림·음식 실사 검색 중...", fg="#0066cc")
             self.log(f"네이버에서 '{location} {store}' 외관/내부/메뉴판/상차림/음식 실사 사진 12~14장을 수집합니다...")
             try:
@@ -715,7 +719,8 @@ class NaverBlogApp(tk.Tk):
             except Exception as e:
                 self.log(f"사진 다운로드 오류: {e}")
             finally:
-                self.btn_auto_photos.config(state="normal", text="⚡ 지금 즉시 사진 수집")
+                if hasattr(self, 'btn_auto_photos'):
+                    self.btn_auto_photos.config(state="normal", text="⚡ 지금 즉시 사진 수집")
 
         threading.Thread(target=task, daemon=True).start()
 
