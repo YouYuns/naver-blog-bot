@@ -227,59 +227,43 @@ class NaverBlogApp(tk.Tk):
         )
         self.lbl_store_fetch_status.pack(side="left", padx=10)
 
-        # --- 섹션 3: 사진 첨부 방식 선택 (자동생성 vs 직접 넣기) ---
-        photo_group = tk.LabelFrame(main_frame, text=" 3. 사진 첨부 방식 선택 (🌐 자동생성 vs 📁 직접 넣기) ", font=("Malgun Gothic", 10, "bold"), bg="#F4F6F9", padx=12, pady=8)
+        # --- 섹션 3: 첨부 사진 관리 (URL 자동 다운로드 & 내 사진 파일명 1:1 자동 매칭) ---
+        photo_group = tk.LabelFrame(main_frame, text=" 3. 첨부 사진 관리 (URL 자동 다운로드 사진 & 파일명 1:1 자동 매칭) ", font=("Malgun Gothic", 10, "bold"), bg="#F4F6F9", padx=12, pady=8)
         photo_group.pack(fill="x", pady=4)
 
-        self.photo_mode = tk.StringVar(value="auto")
+        self.photo_mode = tk.StringVar(value="custom")
 
-        # 옵션 1: 실사 자동 수집
-        row_auto = tk.Frame(photo_group, bg="#F4F6F9")
-        row_auto.pack(fill="x", pady=2)
-
-        rb_auto = ttk.Radiobutton(
-            row_auto, 
-            text="🌐 [자동생성] 네이버 실사 12~14장 자동 수집 (글자/워터마크 없는 찐 실사만 수집 & 가로 나란히 자동 배치)", 
-            variable=self.photo_mode, 
-            value="auto",
-            command=self.on_photo_mode_changed
-        )
-        rb_auto.pack(side="left")
-
-        # 옵션 2: 내 사진 직접 넣기
-        row_custom = tk.Frame(photo_group, bg="#F4F6F9")
-        row_custom.pack(fill="x", pady=(4, 2))
-
-        rb_custom = ttk.Radiobutton(
-            row_custom, 
-            text="📁 [직접 넣기] 내 사진 직접 넣기 (폰/카메라 촬영 원본 권장 - 글 흐름에 맞춰 본문 사이사이 알아서 자동 배치)", 
-            variable=self.photo_mode, 
-            value="custom",
-            command=self.on_photo_mode_changed
-        )
-        rb_custom.pack(side="left")
+        row_btns = tk.Frame(photo_group, bg="#F4F6F9")
+        row_btns.pack(fill="x", pady=2)
 
         self.btn_choose_folder = tk.Button(
-            row_custom, text="📂 폴더 선택", 
-            font=("Malgun Gothic", 9), relief="groove", padx=8,
+            row_btns, text="📂 사진 폴더 선택", 
+            font=("Malgun Gothic", 9, "bold"), bg="#E0E0E0", relief="groove", padx=10, pady=3, cursor="hand2",
             command=self.on_select_photo_folder
         )
-        self.btn_choose_folder.pack(side="left", padx=8)
+        self.btn_choose_folder.pack(side="left", padx=(0, 6))
 
         self.btn_choose_files = tk.Button(
-            row_custom, text="🖼️ 파일 복수 선택", 
-            font=("Malgun Gothic", 9), relief="groove", padx=8,
+            row_btns, text="🖼️ 사진 파일 복수 선택", 
+            font=("Malgun Gothic", 9, "bold"), bg="#E0E0E0", relief="groove", padx=10, pady=3, cursor="hand2",
             command=self.on_select_photo_files
         )
-        self.btn_choose_files.pack(side="left", padx=2)
+        self.btn_choose_files.pack(side="left", padx=4)
+
+        self.btn_open_download_folder = tk.Button(
+            row_btns, text="📁 다운로드 폴더 열기", 
+            font=("Malgun Gothic", 9), bg="#ECEFF1", relief="groove", padx=10, pady=3, cursor="hand2",
+            command=self.on_open_download_folder
+        )
+        self.btn_open_download_folder.pack(side="left", padx=6)
 
         # 상태 안내 라벨
         self.lbl_photo_info = tk.Label(
             photo_group, 
-            text="현재 모드: [자동생성] 네이버에서 글자 없는 찐 실사 12~14장을 자동 수집하여 콜라주 배치합니다.", 
-            font=("Malgun Gothic", 9), fg="#0066cc", bg="#F4F6F9"
+            text="💡 상단에 주소나 블로그 링크를 넣으시면 실사 사진이 알맞은 파일명으로 특정 폴더에 자동 다운로드 및 세팅됩니다.", 
+            font=("Malgun Gothic", 9, "bold"), fg="#0066cc", bg="#F4F6F9"
         )
-        self.lbl_photo_info.pack(anchor="w", pady=(4, 0))
+        self.lbl_photo_info.pack(anchor="w", pady=(6, 0))
 
         lbl_hint = tk.Label(
             photo_group,
@@ -370,26 +354,19 @@ class NaverBlogApp(tk.Tk):
             color = "#E65100"
         self.lbl_preset_status.config(text=msg, fg=color)
 
+    def on_open_download_folder(self):
+        target_dir = store_crawler.DOWNLOADS_ROOT
+        if self.photo_paths and os.path.exists(os.path.dirname(self.photo_paths[0])):
+            target_dir = os.path.dirname(self.photo_paths[0])
+        os.makedirs(target_dir, exist_ok=True)
+        try:
+            os.startfile(target_dir)
+            self.log(f"📁 [폴더 열기] 다운로드 사진 폴더를 탐색기로 열었습니다: {target_dir}")
+        except Exception as e:
+            messagebox.showinfo("다운로드 폴더", f"다운로드 폴더 위치: {target_dir}")
+
     def on_photo_mode_changed(self):
-        mode = self.photo_mode.get()
-        if mode == "auto":
-            self.lbl_photo_info.config(
-                text="현재 모드: [자동생성] 네이버에서 글자 없는 찐 실사 12~14장을 자동으로 수집하여 콜라주 배치합니다.",
-                fg="#0066cc"
-            )
-            self.log("🌐 [사진 모드 변경] '네이버 실사 자동 수집' 모드가 선택되었습니다.")
-        else:
-            if self.photo_paths and self.custom_photos_selected:
-                self.lbl_photo_info.config(
-                    text=f"현재 모드: [직접 넣기] 선택된 사진 {len(self.photo_paths)}장이 글 문맥 흐름에 맞게 본문 사이사이에 자동 배치됩니다.",
-                    fg="#03C75A"
-                )
-            else:
-                self.lbl_photo_info.config(
-                    text="현재 모드: [직접 넣기] [📂 폴더 선택] 또는 [🖼️ 파일 복수 선택] 버튼으로 사진을 지정해주세요. (글자에 맞게 알아서 자동 배치)",
-                    fg="#e67e22"
-                )
-            self.log("📁 [사진 모드 변경] '내 사진 직접 넣기' 모드가 선택되었습니다. 직접 촬영한 사진을 선택하시면 글 흐름에 맞춰 자동 배치됩니다.")
+        pass
 
     def reset_start_button(self):
         """블로그 작성 버튼 활성화 및 문구 원복"""
@@ -400,18 +377,18 @@ class NaverBlogApp(tk.Tk):
         writer.stop_active_browser_session()
         self.reset_start_button()
         self.entry_address_or_url.delete(0, tk.END)
-        self.entry_address_or_url.insert(0, "예) 서울 종로구 북촌로2길 5-6 또는 네이버 플레이스 링크 URL")
+        self.entry_address_or_url.insert(0, "예) 서울 종로구 북촌로2길 5-6 또는 블로그 링크(https://blog.naver.com/...)")
         self.entry_store.delete(0, tk.END)
         self.entry_location.delete(0, tk.END)
         self.entry_menu.delete(0, tk.END)
         self.entry_features.delete(0, tk.END)
         self.photo_paths = []
         self.custom_photos_selected = False
-        self.photo_mode.set("auto")
+        self.photo_mode.set("custom")
         self.store_info = None
         self.generated_data = None
         self.lbl_store_fetch_status.config(text="가게 정보: 미조회 (식당 입력 후 조회 버튼 또는 작성 시 자동 수집)", fg="#555")
-        self.lbl_photo_info.config(text="현재 모드: [자동생성] 네이버에서 글자 없는 찐 실사 12~14장 자동 수집 & 콜라주 배치", fg="#0066cc")
+        self.lbl_photo_info.config(text="💡 상단에 주소나 블로그 링크를 넣으시면 실사 사진이 알맞은 파일명으로 특정 폴더에 자동 다운로드 및 세팅됩니다.", fg="#0066cc")
         self.log("🔄 [새로 만들기] 입력창과 설정이 깨끗하게 초기화되었습니다! 새로운 맛집 정보를 입력해주세요.")
 
     def on_generate_random_preset(self):
@@ -761,10 +738,10 @@ class NaverBlogApp(tk.Tk):
             self.custom_photos_selected = True
             self.photo_mode.set("custom")
             self.lbl_photo_info.config(
-                text=f"현재 모드: [직접 넣기] 선택된 사진 {len(self.photo_paths)}장이 파일명에 맞춰 본문 글 문맥과 1:1로 어울리게 자동 배치됩니다.", 
+                text=f"✅ 선택된 사진 {len(self.photo_paths)}장 준비 완료! (파일명 순서대로 본문 글 문맥과 1:1 자동 매칭)", 
                 fg="#03C75A"
             )
-            self.log(f"📁 [직접 넣기] 선택한 폴더에서 사진 {len(self.photo_paths)}장을 불러왔습니다: {folder}")
+            self.log(f"📁 [사진 선택] 선택한 폴더에서 사진 {len(self.photo_paths)}장을 불러왔습니다: {folder}")
             summary = generator.get_photo_analysis_summary(self.photo_paths)
             self.log(summary)
             self.log("✨ 파일명에 맞게 글 문맥과 사진 배치가 1:1 완벽 매칭되도록 자동 준비되었습니다!")
@@ -779,10 +756,10 @@ class NaverBlogApp(tk.Tk):
             self.custom_photos_selected = True
             self.photo_mode.set("custom")
             self.lbl_photo_info.config(
-                text=f"현재 모드: [직접 넣기] 선택된 사진 {len(self.photo_paths)}장이 파일명에 맞춰 본문 글 문맥과 1:1로 어울리게 자동 배치됩니다.", 
+                text=f"✅ 선택된 사진 {len(self.photo_paths)}장 준비 완료! (파일명 순서대로 본문 글 문맥과 1:1 자동 매칭)", 
                 fg="#03C75A"
             )
-            self.log(f"📁 [직접 넣기] 직접 선택한 사진 {len(self.photo_paths)}장이 지정되었습니다.")
+            self.log(f"📁 [사진 선택] 직접 선택한 사진 {len(self.photo_paths)}장이 지정되었습니다.")
             summary = generator.get_photo_analysis_summary(self.photo_paths)
             self.log(summary)
             self.log("✨ 파일명에 맞게 글 문맥과 사진 배치가 1:1 완벽 매칭되도록 자동 준비되었습니다!")
@@ -815,11 +792,7 @@ class NaverBlogApp(tk.Tk):
         location = self.entry_location.get().strip()
         menu = self.entry_menu.get().strip()
         features = self.entry_features.get().strip()
-        mode_photo = self.photo_mode.get()
-        if mode_photo == "auto":
-            photo_count = max(len(self.photo_paths), 14)
-        else:
-            photo_count = max(len(self.photo_paths), 1)
+        photo_count = max(len(self.photo_paths), 1)
 
         include_stickers = self.var_sticker.get()
         include_map = self.var_map.get()
@@ -915,26 +888,18 @@ class NaverBlogApp(tk.Tk):
         def task():
             self.btn_start.config(state="disabled", text="블로그 자동 작성 진행 중...")
             try:
-                # 1단계: 사진 준비 (자동생성 vs 직접 넣기)
-                mode_photo = self.photo_mode.get()
-                if mode_photo == "auto":
-                    self.log(f"📸 [1단계: 자동생성] 네이버에서 '{location} {store}' 글자/워터마크 없는 찐 실사 12~14장 자동 수집 중...")
+                # 1단계: 사진 준비 (URL 자동 다운로드 사진 or 직접 선택 사진)
+                if not self.photo_paths:
+                    self.log(f"📸 첨부할 사진이 준비되지 않아 네이버에서 '{location} {store}' 실사 사진을 자동 수집합니다...")
                     photos = store_crawler.download_store_photos(store, location, menu=menu, max_count=14, status_callback=self.log)
                     if photos:
                         self.photo_paths = photos
-                        self.lbl_photo_info.config(text=f"현재 모드: [자동생성] 네이버 실사 {len(self.photo_paths)}장 준비 완료!", fg="#03C75A")
-                    elif not self.photo_paths:
+                        self.custom_photos_selected = True
+                        self.lbl_photo_info.config(text=f"✅ 네이버 실사 {len(self.photo_paths)}장 다운로드 및 세팅 완료!", fg="#03C75A")
+                    else:
                         self.load_default_sample_photos()
-                else:
-                    # 직접 넣기 모드
-                    if not self.photo_paths:
-                        messagebox.showwarning(
-                            "사진 선택 필요", 
-                            "['내 사진 직접 넣기' 모드]\n\n첨부할 사진이 아직 선택되지 않았습니다.\n[📂 폴더 선택] 또는 [🖼️ 파일 복수 선택] 버튼으로 직접 찍은 사진들을 먼저 선택해주세요!"
-                        )
-                        self.btn_start.config(state="normal", text="🚀 네이버 블로그에 바로 작성하기")
-                        return
-                    self.log(f"📁 [1단계: 직접 넣기] 직접 선택하신 사진 {len(self.photo_paths)}장을 글 문맥 흐름(외관->내부->메뉴->상차림->음식)에 맞춰 본문 사이사이에 알아서 자동 배치합니다.")
+
+                self.log(f"📁 [1단계: 사진 배치] 총 {len(self.photo_paths)}장의 사진을 파일명과 글 흐름(외관->내부->메뉴판->상차림->음식)에 맞춰 본문 사이사이에 1:1로 자동 배치합니다.")
 
                 # 2단계: 가게 정보가 없으면 실제 매장 정보(전화, 주소, 영업시간, 주차) 자동 크롤링
                 if not self.store_info:
