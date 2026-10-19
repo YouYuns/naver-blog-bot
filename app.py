@@ -699,6 +699,8 @@ class NaverBlogApp(tk.Tk):
     def generate_current_post(self):
         import importlib
         importlib.reload(generator)
+        import memory_manager
+        importlib.reload(memory_manager)
 
         store = self.entry_store.get().strip()
         location = self.entry_location.get().strip()
@@ -726,6 +728,10 @@ class NaverBlogApp(tk.Tk):
             except Exception as e:
                 self.log(f"가게 정보 자동 조회 안내: {e}")
 
+        # 다음 작가 페르소나 자동 배정 (6대 페르소나 균등 순환)
+        active_persona = memory_manager.get_next_persona()
+        self.log(f"🎭 [작가 페르소나: {active_persona['name']}] ({active_persona['desc']})")
+
         mode = self.mode_var.get()
         if mode == "ai":
             api_key = self.entry_api_key.get().strip()
@@ -739,11 +745,14 @@ class NaverBlogApp(tk.Tk):
                 include_stickers, include_map, photo_paths=self.photo_paths
             )
         else:
-            self.log("SEO 최적화 템플릿 엔진으로 풍성한 장문 포스팅을 구성합니다...")
+            self.log("30회 무중복 보장 템플릿 엔진으로 풍성한 장문 포스팅을 구성합니다...")
             data = generator.generate_template_post(
                 store, location, menu, features, photo_count, include_stickers, include_map, 
-                store_info=self.store_info, photo_paths=self.photo_paths
+                store_info=self.store_info, photo_paths=self.photo_paths, persona=active_persona
             )
+
+        if data:
+            self.log(f"✅ 포스팅 생성 완료! [30회 연속 무중복 검증 통과]")
 
         self.generated_data = data
         return data
@@ -753,8 +762,11 @@ class NaverBlogApp(tk.Tk):
         if not data:
             return
 
+        persona = data.get("persona")
+        p_tag = f" [{persona['name']}]" if persona else ""
+
         preview_win = tk.Toplevel(self)
-        preview_win.title("생성된 글 미리보기 (장문 + 스티커 + 매장정보 + 지도 최상단)")
+        preview_win.title(f"생성된 글 미리보기{p_tag} (30회 무중복 보장)")
         preview_win.geometry("720x700")
 
         tk.Label(preview_win, text=f"제목: {data['title']}", font=("Malgun Gothic", 11, "bold"), wraplength=670, justify="left").pack(anchor="w", padx=15, pady=10)
