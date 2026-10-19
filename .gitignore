@@ -10,8 +10,9 @@ naver_profile/
 downloaded_photos/
 *.log
 
-# 작성 이력 (개인 로컬 저장)
+# 작성 이력 및 로컬 캐시
 written_history.json
+live_hotplaces_cache.json
 
 # 가상환경
 venv/

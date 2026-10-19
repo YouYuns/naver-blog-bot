@@ -249,6 +249,15 @@ def clean_markdown_artifacts(text):
     return text
 
 
+def sanitize_header(header):
+    if not header:
+        return ""
+    header = clean_markdown_artifacts(header)
+    # 인위적인 섹션 번호(1., 2., 3., 1) 등) 완전 제거 (탈-AI 자연스러운 휴먼 블로거 스타일)
+    header = re.sub(r'^(\s*[^\w\s]*\s*)\d+[\.\)]\s*', r'\1', header)
+    return header.strip()
+
+
 def build_rich_hashtags(store_name, location, menu, features=""):
     clean_store = store_name.replace(" ", "").strip()
     clean_loc = location.replace(" ", "").strip()
@@ -478,13 +487,14 @@ def pick_unique_variation(variations, used_set, key_prefix="tpl", fallback_pool=
 
     # 풀 소진 시 동적 수식어 결합 생성
     base_h, base_t = variations[random.randint(0, len(variations) - 1)]
-    prefix_opts = ["✨ 시선 집중!", "📸 또 다른 매력의", "💖 놓칠 수 없는", "👍 감탄을 자아낸", "😋 젓가락이 절로 가는", "🔥 놓치면 후회할"]
+    prefix_opts = ["시선 집중!", "또 다른 매력의", "놓칠 수 없는", "감탄을 자아낸", "젓가락이 절로 가는", "놓치면 후회할"]
     closing_opts = [
         "다른 각도에서 바라보아도 그 매력과 정성이 한결같이 느껴져 만족스러웠답니다 🥰",
         "보는 재미와 맛보는 즐거움이 동시에 채워져 일행 모두 연신 미소를 지었어요 ✨",
         "작은 디테일까지 정갈하게 담아내어 식사의 완성도를 한층 더 높여주었답니다 👍"
     ]
-    raw_title = base_h.split(".")[-1].strip() if "." in base_h else base_h
+    raw_title = re.sub(r'^(\s*[^\w\s]*\s*)\d+[\.\)]\s*', r'\1', base_h).strip()
+    raw_title = re.sub(r'^[^\w\s]+\s*', '', raw_title)
     new_h = f"{random.choice(['✨', '📸', '💖', '⭐', '🥢'])} {random.choice(prefix_opts)} {raw_title}"
     new_t = f"{base_t}\n\n{random.choice(closing_opts)}"
     dyn_key = f"{key_prefix}_dyn_{random.randint(1000, 9999)}"
@@ -559,13 +569,13 @@ def synthesize_dynamic_dish_block(step_num, clean_name, store_name, location, ma
     
     header = ""
     for _ in range(30):
-        cand_h = f"{random.choice(emojis)} {step_num}. {random.choice(hooks)} {random.choice(endings)}"
+        cand_h = f"{random.choice(emojis)} {random.choice(hooks)} {random.choice(endings)}"
         if cand_h not in used_set:
             header = cand_h
             used_set.add(cand_h)
             break
     if not header:
-        header = f"✨ {step_num}. 맛과 비주얼 모두 사로잡은 {clean_name}!"
+        header = f"✨ 맛과 비주얼 모두 사로잡은 {clean_name}!"
 
     # 1. 첫인상 도입부
     if is_subsequent:
@@ -862,7 +872,7 @@ def generate_photo_matched_sections(store_name, location, menu, features, photo_
     context["intro_id"] = intro_key
     sections.append({
         "type": "text",
-        "header": intro_header,
+        "header": sanitize_header(intro_header),
         "content": intro_content
     })
 
@@ -873,9 +883,18 @@ def generate_photo_matched_sections(store_name, location, menu, features, photo_
     if store_info:
         from store_crawler import format_store_info_section
         info_text = format_store_info_section(store_info)
+        info_headers = [
+            f"📌 {store_name} 방문 전 필독 정보 (위치·영업시간·주차)",
+            f"🗺️ 한눈에 쏙 정리해보는 {store_name} 매장 이용 안내",
+            f"🚗 {store_name} 찾아오시는 길 & 매장 핵심 정보 총정리",
+            f"📍 방문 전 꼭 체크해야 할 {store_name} 이용 꿀팁 & 정보",
+            f"📋 {store_name} 영업시간부터 주차 정보까지 완벽 정리!",
+            f"✨ 찾아가기 전 알아두면 유용한 {store_name} 필수 정보"
+        ]
+        info_header = random.choice(info_headers)
         sections.append({
             "type": "text",
-            "header": "📌 매장 상세 방문 정보 (위치, 주차, 영업시간 총정리!)",
+            "header": sanitize_header(info_header),
             "content": info_text
         })
 
@@ -936,7 +955,7 @@ def generate_photo_matched_sections(store_name, location, menu, features, photo_
 
         sections.append({
             "type": "text",
-            "header": header,
+            "header": sanitize_header(header),
             "content": text
         })
 
@@ -954,7 +973,7 @@ def generate_photo_matched_sections(store_name, location, menu, features, photo_
     context["outro_id"] = outro_key
     sections.append({
         "type": "text",
-        "header": outro_header,
+        "header": sanitize_header(outro_header),
         "content": outro_content
     })
 
@@ -1026,16 +1045,16 @@ def generate_template_post(store_name, location, menu, features, photo_count=14,
         intro_h, intro_c, intro_key = generate_dynamic_intro(
             store_name, location, main_menu, persona=persona, return_meta=True
         )
-        sections.append({"type": "text", "header": intro_h, "content": intro_c})
+        sections.append({"type": "text", "header": sanitize_header(intro_h), "content": intro_c})
         if store_info:
             from store_crawler import format_store_info_section
-            sections.append({"type": "text", "header": "📌 매장 상세 정보", "content": format_store_info_section(store_info)})
+            sections.append({"type": "text", "header": sanitize_header(f"📌 {store_name} 매장 이용 안내 & 필수 정보"), "content": format_store_info_section(store_info)})
         if include_map:
             sections.append({"type": "map", "query": store_name, "location_name": f"{location} {store_name}"})
         outro_h, outro_c, outro_key = generate_dynamic_outro(
             store_name, location, menu, persona=persona, return_meta=True
         )
-        sections.append({"type": "text", "header": outro_h, "content": outro_c})
+        sections.append({"type": "text", "header": sanitize_header(outro_h), "content": outro_c})
 
     tags = build_rich_hashtags(store_name, location, menu, features)
 
@@ -1127,5 +1146,5 @@ def generate_ai_post(api_key, api_provider, store_name, location, menu, features
     for s in res["sections"]:
         if s.get("type") == "text":
             s["content"] = clean_markdown_artifacts(s["content"])
-            s["header"] = clean_markdown_artifacts(s["header"])
+            s["header"] = sanitize_header(s.get("header", ""))
     return res

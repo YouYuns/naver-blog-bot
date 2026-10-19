@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 30회 연속 무중복 및 6대 작가 페르소나 순환 검증 테스트 스크립트
 """
@@ -96,12 +96,29 @@ def run_test():
     all_cycled = all(count == 5 for count in p_counts.values()) and len(p_counts) == 6
     print(f"   페르소나 5회씩 완전 균등 분배 여부 -> {'✅ 완벽 순환' if all_cycled else '⚠️ 불균등'}")
 
+    # 5. 소제목 인위적 번호(1., 2. 등) 배제 검사 (탈-AI 자연스러움)
+    numbered_headers = []
+    total_headers = 0
+    for i in range(1, 31):
+        s_info = stores[(i - 1) % len(stores)]
+        post = generator.generate_template_post(*s_info, photo_paths=sample_photos)
+        for s in post["sections"]:
+            h = s.get("header", "")
+            if h:
+                total_headers += 1
+                import re
+                if re.search(r'\b\d+[\.\)]\s*', h) or re.search(r'^\s*[^\w\s]*\s*\d+[\.\)]', h):
+                    numbered_headers.append(h)
+
+    print(f"5. 소제목 탈-AI 번호 배제 검증: {total_headers}개 헤더 중 번호 헤더 {len(numbered_headers)}개 -> {'✅ 전면 번호 배제 통과' if len(numbered_headers) == 0 else '❌ 번호 포함'}")
+
     assert title_dup_count == 0, "제목에 중복이 발생했습니다!"
     assert intro_dup_count == 0, "인트로에 중복이 발생했습니다!"
     assert outro_dup_count == 0, "아웃트로에 중복이 발생했습니다!"
     assert all_cycled, "페르소나가 균등 순환되지 않았습니다!"
+    assert len(numbered_headers) == 0, f"소제목에 인위적 번호가 포함되어 있습니다: {numbered_headers}"
 
-    print("\n🎉 모든 30회 무중복 보장 및 페르소나 순환 검증 100% 통과!\n")
+    print("\n🎉 모든 30회 무중복 보장, 탈-AI 소제목 및 페르소나 순환 검증 100% 통과!\n")
 
 if __name__ == "__main__":
     run_test()
