@@ -237,15 +237,15 @@ class NaverBlogApp(tk.Tk):
         row_btns.pack(fill="x", pady=2)
 
         self.btn_load_photos = tk.Button(
-            row_btns, text="📷 내 사진 불러오기 (폴더/파일)", 
-            font=("Malgun Gothic", 9, "bold"), bg="#E0E0E0", relief="groove", padx=12, pady=3, cursor="hand2",
+            row_btns, text="📷 내 사진 불러오기 (복수 선택 / Ctrl+A 전체선택)", 
+            font=("Malgun Gothic", 9, "bold"), bg="#E0E0E0", relief="groove", padx=12, pady=4, cursor="hand2",
             command=self.on_load_my_photos
         )
         self.btn_load_photos.pack(side="left", padx=(0, 6))
 
         self.btn_open_download_folder = tk.Button(
             row_btns, text="📁 다운로드 폴더 열기", 
-            font=("Malgun Gothic", 9), bg="#ECEFF1", relief="groove", padx=10, pady=3, cursor="hand2",
+            font=("Malgun Gothic", 9), bg="#ECEFF1", relief="groove", padx=10, pady=4, cursor="hand2",
             command=self.on_open_download_folder
         )
         self.btn_open_download_folder.pack(side="left", padx=6)
@@ -260,7 +260,7 @@ class NaverBlogApp(tk.Tk):
 
         lbl_hint = tk.Label(
             photo_group,
-            text="💡 파일명 자동 매칭 팁: 파일 이름에 '외관', '내부', '메뉴판', '상차림', '방어회/고기/메인', '디테일', '쌈/꿀조합', '라면/사이드', '완식/마무리' 등을 적어두시면 파일명을 100% 자동 인식하여 글 문맥과 사진을 1:1로 어울리게 자동 배치합니다!",
+            text="💡 사진 선택 팁: 파일 선택 창에서 Ctrl+A를 누르면 해당 폴더 내 모든 사진을 1초 만에 일괄 선택할 수 있습니다. (파일명 순서대로 본문과 1:1 자동 매칭)",
             font=("Malgun Gothic", 8), fg="#555555", bg="#F4F6F9"
         )
         lbl_hint.pack(anchor="w", pady=(2, 0))
@@ -720,43 +720,26 @@ class NaverBlogApp(tk.Tk):
         threading.Thread(target=task, daemon=True).start()
 
     def on_load_my_photos(self):
-        """하나의 통합 버튼으로 폴더 전체 또는 개별 파일 복수 선택 지원"""
-        ans = messagebox.askyesnocancel(
-            "사진 불러오기 방식 선택",
-            "어떤 방식으로 사진을 불러오시겠습니까?\n\n"
-            "• [예] : 폴더 선택 (해당 폴더 내 모든 사진 일괄 등록)\n"
-            "• [아니오] : 파일 직접 선택 (원하는 사진들만 쏙쏙 선택)\n"
-            "• [취소] : 닫기"
-        )
-        if ans is True:
-            self.on_select_photo_folder()
-        elif ans is False:
-            self.on_select_photo_files()
-
-    def on_select_photo_folder(self):
-        folder = filedialog.askdirectory(title="맛집 사진이 있는 폴더를 선택하세요")
-        if folder:
-            exts = (".jpg", ".jpeg", ".png", ".webp")
-            files = [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(exts)]
-            if not files:
-                messagebox.showwarning("사진 없음", "해당 폴더에 이미지 파일(.jpg, .png 등)이 없습니다.")
-                return
-            self.photo_paths = sorted(files, key=generator.smart_photo_sort_key)
-            self.custom_photos_selected = True
-            self.photo_mode.set("custom")
-            self.lbl_photo_info.config(
-                text=f"✅ 선택된 사진 {len(self.photo_paths)}장 준비 완료! (파일명 순서대로 본문 글 문맥과 1:1 자동 매칭)", 
-                fg="#03C75A"
-            )
-            self.log(f"📁 [사진 선택] 선택한 폴더에서 사진 {len(self.photo_paths)}장을 불러왔습니다: {folder}")
-            summary = generator.get_photo_analysis_summary(self.photo_paths)
-            self.log(summary)
-            self.log("✨ 파일명에 맞게 글 문맥과 사진 배치가 1:1 완벽 매칭되도록 자동 준비되었습니다!")
+        """팝업 질문 없이 즉시 복수 사진 선택 창 열기 (Ctrl+A로 폴더 전체 일괄 선택 가능)"""
+        self.on_select_photo_files()
 
     def on_select_photo_files(self):
+        initial_dir = store_crawler.DOWNLOADS_ROOT
+        if self.photo_paths and os.path.exists(os.path.dirname(self.photo_paths[0])):
+            initial_dir = os.path.dirname(self.photo_paths[0])
+        else:
+            store = self.entry_store.get().strip()
+            loc = self.entry_location.get().strip()
+            if store:
+                safe_name = re.sub(r'[\\/:*?"<>|]', '_', f"{loc}_{store}").strip()
+                cand_dir = os.path.join(store_crawler.DOWNLOADS_ROOT, safe_name)
+                if os.path.exists(cand_dir):
+                    initial_dir = cand_dir
+
         files = filedialog.askopenfilenames(
-            title="첨부할 사진들을 선택하세요 (Ctrl 또는 Shift로 여러 장 선택)",
-            filetypes=[("Image Files", "*.jpg;*.jpeg;*.png;*.webp")]
+            title="첨부할 사진들을 선택하세요 (Ctrl+A로 폴더 전체 선택 / Ctrl 클릭으로 복수 선택)",
+            initialdir=initial_dir,
+            filetypes=[("Image Files", "*.jpg;*.jpeg;*.png;*.webp"), ("All Files", "*.*")]
         )
         if files:
             self.photo_paths = sorted(list(files), key=generator.smart_photo_sort_key)
@@ -766,7 +749,7 @@ class NaverBlogApp(tk.Tk):
                 text=f"✅ 선택된 사진 {len(self.photo_paths)}장 준비 완료! (파일명 순서대로 본문 글 문맥과 1:1 자동 매칭)", 
                 fg="#03C75A"
             )
-            self.log(f"📁 [사진 선택] 직접 선택한 사진 {len(self.photo_paths)}장이 지정되었습니다.")
+            self.log(f"📁 [사진 선택] 사진 {len(self.photo_paths)}장이 지정되었습니다.")
             summary = generator.get_photo_analysis_summary(self.photo_paths)
             self.log(summary)
             self.log("✨ 파일명에 맞게 글 문맥과 사진 배치가 1:1 완벽 매칭되도록 자동 준비되었습니다!")

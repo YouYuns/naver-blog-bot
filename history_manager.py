@@ -151,34 +151,63 @@ def clear_written_history():
         return False
 
 
+def is_valid_store_name(s):
+    """실제 식당 상호명인지 엄격히 검증 (쿠폰/프로모션/영업상태/방송명 등 철저 배제)"""
+    if not s or not isinstance(s, str):
+        return False
+    s = s.strip()
+    if len(s) < 2 or len(s) > 22:
+        return False
+    import re
+    invalid_keywords = [
+        "할인", "쿠폰", "이벤트", "증정", "혜택", "서비스", "콜키지", "무료", "예약", "모임",
+        "영업 중", "영업중", "영업 전", "영업전", "영업 종료", "오늘 휴무", "정기휴무", "브레이크타임",
+        "생방송투데이", "2TV생생정보", "생방송오늘저녁", "놀라운토요일", "줄서는식당", "맛있는녀석들",
+        "휠체어", "출입 가능", "출입가능", "주차 가능", "배달", "포장", "더보기", "다음", "이전", "플레이스", "지도",
+        "길찾기", "톡톡", "네이버페이", "새로오픈", "주간 인기", "리뷰", "별점", "광고", "저장", "NAVER", "Corp"
+    ]
+    if any(k in s for k in invalid_keywords):
+        return False
+    if re.search(r'\d+%', s) or re.search(r'^\d+(\.\d+)?$', s):
+        return False
+    return True
+
+
 LIVE_CACHE_FILE = os.path.join(CURRENT_DIR, "live_hotplaces_cache.json")
 
 def load_live_hotplaces():
-    """실시간 네이버 검색으로 발굴된 핫플레이스 캐시 불러오기"""
+    """실시간 네이버 검색으로 발굴된 핫플레이스 캐시 불러오기 (유효 상호명만 필터링)"""
     if os.path.exists(LIVE_CACHE_FILE):
         try:
             with open(LIVE_CACHE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 items = data.get("places", [])
-                return [(it["store"], it["location"], it["menu"], it["features"]) for it in items]
+                return [
+                    (it["store"], it["location"], it["menu"], it["features"]) 
+                    for it in items 
+                    if is_valid_store_name(it.get("store", ""))
+                ]
         except Exception:
             return []
     return []
 
 def save_live_hotplaces(places_list):
-    """실시간 크롤링된 핫플레이스를 캐시에 누적 저장"""
+    """실시간 크롤링된 핫플레이스를 캐시에 누적 저장 (유효 상호명만 저장)"""
     existing = {it[0]: it for it in load_live_hotplaces()}
     for it in places_list:
         if isinstance(it, dict):
-            s = it.get("store", "")
-            if s:
+            s = it.get("store", "").strip()
+            if is_valid_store_name(s):
                 existing[s] = (s, it.get("location", ""), it.get("menu", ""), it.get("features", ""))
         elif isinstance(it, (tuple, list)) and len(it) >= 4:
-            existing[it[0]] = (it[0], it[1], it[2], it[3])
+            s = it[0].strip()
+            if is_valid_store_name(s):
+                existing[s] = (s, it[1], it[2], it[3])
             
     payload = [
         {"store": v[0], "location": v[1], "menu": v[2], "features": v[3]}
         for v in existing.values()
+        if is_valid_store_name(v[0])
     ]
     try:
         with open(LIVE_CACHE_FILE, "w", encoding="utf-8") as f:
@@ -189,7 +218,7 @@ def save_live_hotplaces(places_list):
 def get_unwritten_hot_candidates(current_store=""):
     """
     아직 작성하지 않은 핫플레이스 식당 목록만 필터링하여 반환
-    (실시간 네이버 크롤링으로 발굴된 최신 매장 우선 포함)
+    (실시간 네이버 크롤링으로 발굴된 최신 매장 우선 포함, 유효 상호명만 필터링)
     """
     written_names = get_written_store_names()
     live_pool = load_live_hotplaces()
@@ -198,7 +227,7 @@ def get_unwritten_hot_candidates(current_store=""):
     seen = set()
     combined = []
     for item in live_pool + HOT_RESTAURANT_POOL:
-        if item[0] not in seen:
+        if is_valid_store_name(item[0]) and item[0] not in seen:
             seen.add(item[0])
             combined.append(item)
 

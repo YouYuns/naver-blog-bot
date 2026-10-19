@@ -675,11 +675,32 @@ def resolve_store_from_address_or_url(input_query, status_callback=print):
     }
 
 
+def is_valid_store_name(s):
+    """실제 식당 상호명인지 엄격히 검증 (쿠폰/프로모션/영업상태/방송명 등 철저 배제)"""
+    if not s or not isinstance(s, str):
+        return False
+    s = s.strip()
+    if len(s) < 2 or len(s) > 22:
+        return False
+    invalid_keywords = [
+        "할인", "쿠폰", "이벤트", "증정", "혜택", "서비스", "콜키지", "무료", "예약", "모임",
+        "영업 중", "영업중", "영업 전", "영업전", "영업 종료", "오늘 휴무", "정기휴무", "브레이크타임",
+        "생방송투데이", "2TV생생정보", "생방송오늘저녁", "놀라운토요일", "줄서는식당", "맛있는녀석들",
+        "휠체어", "출입 가능", "출입가능", "주차 가능", "배달", "포장", "더보기", "다음", "이전", "플레이스", "지도",
+        "길찾기", "톡톡", "네이버페이", "새로오픈", "주간 인기", "리뷰", "별점", "광고", "저장", "NAVER", "Corp"
+    ]
+    if any(k in s for k in invalid_keywords):
+        return False
+    if re.search(r'\d+%', s) or re.search(r'^\d+(\.\d+)?$', s):
+        return False
+    return True
+
+
 def crawl_live_trending_hotplaces(area="성수동", max_count=10):
     """
     네이버에서 실시간 최신 핫플레이스를 검색 크롤링하여 (상호, 위치, 대표메뉴, 특징) 반환
-    - 하드코딩 없이 네이버 플레이스 주간 인기 매장과 메뉴를 라이브로 직접 가져옴
-    - TV 프로그램명(생방송투데이 등), 영업 상태(오늘 휴무 등)가 상호명으로 오인되지 않도록 완벽 필터링
+    - 카드 단위(li:has(span.TYaxT) 등)로 정밀 파싱하여 식당 상호명, 카테고리, 메뉴, 혜택을 100% 구분
+    - 쿠폰/할인 프로모션 문구(청첩장 모임 10% 할인 쿠폰 등), TV 프로그램명, 영업 상태가 상호명으로 오인되지 않도록 완벽 필터링
     """
     query = f"{area} 핫플 맛집"
     url = f"https://search.naver.com/search.naver?query={urllib.parse.quote(query)}"
@@ -696,85 +717,83 @@ def crawl_live_trending_hotplaces(area="성수동", max_count=10):
             page.goto(url, wait_until="domcontentloaded", timeout=12000)
             page.wait_for_timeout(2500)
             
-            # 플레이스 섹션 및 전용 타이틀 태그 수집
-            sec = page.locator('section').filter(has_text='플레이스 검색결과').first
-            sec_text = sec.inner_text().strip() if sec.count() else ""
+            # 플레이스 카드 단위 탐색
+            cards = page.locator('li:has(span.TYaxT), li.UEzoS, li.VLTHu, .place_section li')
+            card_count = cards.count()
             
-            titles = page.locator('span.Ypcqn, a.place_bluelink, .place_section .Fc1rA, .place_section .GHAhO')
-            raw_titles = [titles.nth(i).inner_text().strip() for i in range(titles.count())]
-            browser.close()
+            seen_names = set()
             
-        invalid_words = [
-            "생방송투데이", "2TV생생정보", "생방송오늘저녁", "놀라운토요일", "줄서는식당", "맛있는녀석들",
-            "영업 중", "영업중", "영업 전", "영업 종료", "오늘 휴무", "정기휴무", "브레이크타임",
-            "별점", "광고", "저장", "더보기", "플레이스", "지도", "길찾기", "쿠폰", "예약", "톡톡", "네이버페이",
-            "새로오픈", "주간 인기 많은 메뉴"
-        ]
-        
-        valid_stores = []
-        for raw_s in raw_titles:
-            s = raw_s.strip()
-            if not s or len(s) < 2 or len(s) > 30:
-                continue
-            if any(inv in s for inv in invalid_words):
-                continue
-            if re.match(r'^\d+(\.\d+)?', s):
-                continue
-            clean_s = re.sub(r'\s+[가-힣0-9]+점$', '', s)
-            clean_s = re.sub(r'\s+(점심저녁|점심|저녁|본점|성수본점)$', '', clean_s).strip()
-            if clean_s and not any(v[0] == clean_s for v in valid_stores):
-                valid_stores.append((clean_s, raw_s))
+            for i in range(card_count):
+                c = cards.nth(i)
+                title_loc = c.locator('span.TYaxT, span.Ypcqn, a.place_bluelink')
+                if not title_loc.count():
+                    continue
                 
-        for idx, (clean_store, raw_store) in enumerate(valid_stores):
-            pos = sec_text.find(raw_store) if sec_text else -1
-            nxt_pos = len(sec_text) if sec_text else 0
-            if pos != -1 and idx + 1 < len(valid_stores):
-                nxt_raw = valid_stores[idx + 1][1]
-                p2 = sec_text.find(nxt_raw, pos + len(raw_store))
-                if p2 != -1:
-                    nxt_pos = p2
-                    
-            chunk = sec_text[pos:nxt_pos] if (pos != -1 and sec_text) else ""
-            lines = [l.strip() for l in chunk.split('\n') if l.strip()]
-            
-            menu = ""
-            for i, l in enumerate(lines):
-                if "주간 인기 많은 메뉴" in l and i + 1 < len(lines):
-                    menu = lines[i + 1].strip().rstrip(' ,.')
-                    break
-                    
-            cat = ""
-            for l in lines[1:]:
-                if any(c in l for c in ["한식", "양식", "일식", "중식", "카페", "디저트", "베이커리", "고기", "구이", "햄버거", "치킨", "피자", "파스타", "만두", "칼국수", "주점", "브런치"]):
-                    cat = l
-                    break
-                    
-            feature = ""
-            for l in lines[1:]:
-                if len(l) >= 6 and not any(w in l for w in ["영업", "별점", "리뷰", "광고", "저장", "더보기", "TV", "쿠폰", "예약", "네이버", "주간 인기", "connect", "NAVER"]):
-                    if l != raw_store and l != menu and l != cat:
-                        feature = l
+                raw_s = title_loc.first.inner_text().strip()
+                clean_s = re.sub(r'\s+[가-힣0-9]+점$', '', raw_s)
+                clean_s = re.sub(r'\s+(본점|직영점|1호점|2호점|신당본점|성수본점)$', '', clean_s).strip()
+                
+                if not is_valid_store_name(clean_s):
+                    continue
+                if clean_s in seen_names:
+                    continue
+                seen_names.add(clean_s)
+                
+                # 카테고리 추출
+                cat_loc = c.locator('span.KCMnt')
+                cat = cat_loc.first.inner_text().strip() if cat_loc.count() else ""
+                
+                # 카드 내 전체 텍스트
+                lines = [l.strip() for l in c.inner_text().split('\n') if l.strip()]
+                if not cat:
+                    for l in lines:
+                        if any(k in l for k in ["한식", "양식", "일식", "중식", "카페", "디저트", "베이커리", "고기", "구이", "햄버거", "치킨", "피자", "파스타", "만두", "칼국수", "주점", "브런치", "라멘"]):
+                            cat = l
+                            break
+                            
+                # 대표 메뉴 추출
+                menu = ""
+                for j, l in enumerate(lines):
+                    if "주간 인기 많은 메뉴" in l and j + 1 < len(lines):
+                        menu = lines[j + 1].strip().rstrip(' ,.')
                         break
                         
-            if not menu:
-                if "카페" in cat or "디저트" in cat or "베이커리" in cat:
-                    menu = "시그니처 디저트, 베이커리, 스페셜티 커피"
-                elif "버거" in cat or "햄버거" in cat:
-                    menu = "수제버거, 프렌치프라이, 쉐이크"
-                elif "양식" in cat or "파스타" in cat:
-                    menu = "시그니처 파스타, 스테이크, 리조또"
-                elif "고기" in cat or "구이" in cat:
-                    menu = "숙성 삼겹살, 목살구이, 된장찌개"
+                if not menu:
+                    if any(k in cat for k in ["카페", "디저트", "베이커리"]):
+                        menu = "시그니처 디저트, 베이커리, 스페셜티 커피"
+                    elif any(k in cat for k in ["버거", "햄버거"]):
+                        menu = "수제버거, 프렌치프라이, 쉐이크"
+                    elif any(k in cat for k in ["양식", "파스타", "스테이크"]):
+                        menu = "시그니처 파스타, 스테이크, 리조또"
+                    elif any(k in cat for k in ["고기", "구이"]):
+                        menu = "숙성 삼겹살, 목살구이, 된장찌개"
+                    elif "라멘" in cat:
+                        menu = "시그니처 라멘, 차슈 덮밥, 교자"
+                    else:
+                        menu = f"{cat} 대표 인기 시그니처 메뉴" if cat else "대표 인기 시그니처 메뉴"
+                        
+                # 쿠폰/프로모션/혜택 정보
+                promo_loc = c.locator('a.UhcHZ, .benefit, .place_promotion')
+                promo = promo_loc.first.inner_text().strip() if promo_loc.count() else ""
+                
+                if promo:
+                    feature = f"{cat} 핫플 ({promo})" if cat else f"네이버 플레이스 실시간 인기 핫플 ({promo})"
+                elif cat:
+                    feature = f"네이버 플레이스 실시간 {area} 주간 인기 {cat} 핫플레이스"
                 else:
-                    menu = f"{cat} 대표 인기 시그니처 메뉴" if cat else "대표 인기 시그니처 메뉴"
+                    feature = f"네이버 플레이스 실시간 {area} 주간 인기 핫플레이스"
                     
-            results.append({
-                "store": clean_store,
-                "location": area,
-                "category": cat,
-                "menu": menu,
-                "features": feature or f"네이버 플레이스 실시간 {area} 핫플레이스"
-            })
+                results.append({
+                    "store": clean_s,
+                    "location": area,
+                    "category": cat,
+                    "menu": menu,
+                    "features": feature
+                })
+                if len(results) >= max_count:
+                    break
+                    
+            browser.close()
     except Exception as e:
         print(f"실시간 핫플 검색 오류: {e}")
         
