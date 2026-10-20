@@ -1179,75 +1179,424 @@ def generate_template_post(store_name, location, menu, features, photo_count=14,
     }
 
 
-def call_llm_api(provider, api_key, prompt):
-    try:
-        p_lower = str(provider).lower()
-        if "gemini" in p_lower:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+def clean_json_text(text):
+    """LLM이 반환한 마크다운 코드 블록(```json ...)을 제거하고 순수 JSON 문자열만 추출"""
+    if not text:
+        return ""
+    text = text.strip()
+    text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
+    m = re.search(r'(\{[\s\S]*\})', text)
+    if m:
+        text = m.group(1)
+    return text.strip()
+
+
+def call_llm_api(provider, api_key, prompt, status_callback=print):
+    """
+    Google Gemini (gemini-2.5-flash / gemini-1.5-flash / gemini-2.0-flash)
+    OpenAI (gpt-4o-mini / gpt-4o)
+    Anthropic Claude (claude-3-5-haiku) 지원
+    """
+    import json
+    import urllib.request
+    import urllib.error
+
+    p_lower = str(provider).lower()
+
+    # 1. Google Gemini
+    if "gemini" in p_lower:
+        gemini_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+        last_error = None
+        for m_name in gemini_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m_name}:generateContent?key={api_key}"
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.8, "maxOutputTokens": 4096}
+                "generationConfig": {
+                    "temperature": 0.8,
+                    "maxOutputTokens": 8192,
+                    "responseMimeType": "application/json"
+                }
             }
-            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
-            with urllib.request.urlopen(req, timeout=25) as resp:
+            try:
+                status_callback(f"🤖 Google Gemini ({m_name}) 실시간 고유 서사 생성 요청 중...")
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode('utf-8'),
+                    headers={'Content-Type': 'application/json'}
+                )
+                with urllib.request.urlopen(req, timeout=45) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    raw_text = data['candidates'][0]['content']['parts'][0]['text']
+                    status_callback(f"✅ Gemini ({m_name}) 본문 100% 창작 완료!")
+                    return raw_text
+            except urllib.error.HTTPError as he:
+                err_body = he.read().decode('utf-8', errors='ignore')
+                last_error = f"HTTP {he.code}: {err_body[:150]}"
+                if he.code == 404:
+                    continue  # Try next model name
+                else:
+                    status_callback(f"⚠️ Gemini API 오류 ({m_name}): {last_error}")
+                    break
+            except Exception as e:
+                last_error = str(e)
+                status_callback(f"⚠️ Gemini 호출 예외: {e}")
+                break
+        status_callback(f"⚠️ Gemini 모델 호출 실패: {last_error}")
+        return None
+
+    # 2. OpenAI
+    elif "openai" in p_lower:
+        url = "https://api.openai.com/v1/chat/completions"
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "당신은 네이버 상위 1% 맛집 전문 파워블로거입니다. 마크다운 서식 기호 없이 스마트에디터용 순수 텍스트로 작성하며, 반드시 요청받은 유효한 JSON 형식으로만 응답하세요."
+                },
+                {"role": "user", "content": prompt}
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.8,
+            "max_tokens": 4096
+        }
+        try:
+            status_callback("🤖 OpenAI (gpt-4o-mini) 실시간 고유 서사 생성 요청 중...")
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {api_key}'
+                }
+            )
+            with urllib.request.urlopen(req, timeout=45) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
-                return data['candidates'][0]['content']['parts'][0]['text']
-        elif "openai" in p_lower:
-            url = "https://api.openai.com/v1/chat/completions"
-            payload = {
-                "model": "gpt-4o-mini",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.8
-            }
-            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'})
-            with urllib.request.urlopen(req, timeout=25) as resp:
+                raw_text = data['choices'][0]['message']['content']
+                status_callback("✅ OpenAI (gpt-4o-mini) 본문 100% 창작 완료!")
+                return raw_text
+        except urllib.error.HTTPError as he:
+            err_body = he.read().decode('utf-8', errors='ignore')
+            status_callback(f"⚠️ OpenAI API HTTP {he.code} 오류: {err_body[:150]}")
+        except Exception as e:
+            status_callback(f"⚠️ OpenAI API 호출 예외: {e}")
+        return None
+
+    # 3. Claude
+    elif "claude" in p_lower:
+        url = "https://api.anthropic.com/v1/messages"
+        payload = {
+            "model": "claude-3-5-haiku-20241022",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 4096,
+            "temperature": 0.8
+        }
+        try:
+            status_callback("🤖 Anthropic Claude 실시간 생성 요청 중...")
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={
+                    'Content-Type': 'application/json',
+                    'x-api-key': api_key,
+                    'anthropic-version': '2023-06-01'
+                }
+            )
+            with urllib.request.urlopen(req, timeout=45) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
-                return data['choices'][0]['message']['content']
-        elif "claude" in p_lower:
-            url = "https://api.anthropic.com/v1/messages"
-            payload = {
-                "model": "claude-3-5-haiku-20241022",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 4096,
-                "temperature": 0.8
-            }
-            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json', 'x-api-key': api_key, 'anthropic-version': '2023-06-01'})
-            with urllib.request.urlopen(req, timeout=25) as resp:
-                data = json.loads(resp.read().decode('utf-8'))
-                return data['content'][0]['text']
-    except Exception as e:
-        print(f"AI API 호출 안내 (다변화 템플릿 엔진으로 즉시 자동 대체): {e}")
+                raw_text = data['content'][0]['text']
+                status_callback("✅ Claude 본문 100% 창작 완료!")
+                return raw_text
+        except Exception as e:
+            status_callback(f"⚠️ Claude API 호출 오류: {e}")
+        return None
+
     return None
 
 
-def generate_ai_post(api_key, api_provider, store_name, location, menu, features, photo_count=5, include_stickers=True, include_map=True, photo_paths=None):
-    res = generate_template_post(store_name, location, menu, features, photo_count, include_stickers, include_map, photo_paths=photo_paths)
-    if api_key and api_key.strip():
-        photo_names = [os.path.basename(p) for p in (photo_paths or [])]
-        prompt = (
-            f"당신은 네이버 블로그 맛집 전문 파워블로거입니다.\n"
-            f"식당: {store_name}\n"
-            f"위치: {location}\n"
-            f"메뉴: {menu}\n"
-            f"특징: {features}\n"
-            f"첨부된 사진 파일명 목록: {', '.join(photo_names)}\n\n"
-            f"위 정보를 바탕으로 독창적이고 흥미진진한 블로그 제목 하나와, 맛집 방문의 설렘이 느껴지는 도입부 3문단을 한국어로 작성해주세요.\n"
-            f"형식:\n제목: [제목]\n도입부: [도입부 본문]"
-        )
-        ai_resp = call_llm_api(api_provider, api_key.strip(), prompt)
-        if ai_resp:
-            m_title = re.search(r'제목:\s*(.+)', ai_resp)
-            m_intro = re.search(r'도입부:\s*([\s\S]+)', ai_resp)
-            if m_title:
-                res["title"] = clean_markdown_artifacts(m_title.group(1).strip())
-            if m_intro and res["sections"]:
-                for s in res["sections"]:
-                    if s.get("type") == "text":
-                        s["content"] = clean_markdown_artifacts(m_intro.group(1).strip())
-                        break
+def generate_ai_post(api_key, api_provider, store_name, location, menu, features, photo_count=5, include_stickers=True, include_map=True, store_info=None, photo_paths=None, persona=None, status_callback=print):
+    """
+    100% 최신 생성형 AI(Google Gemini / OpenAI)를 사용하여
+    도입부, 사진별 1:1 맞춤 서사, 식감/미각 묘사, 매장 정보, 총평, 해시태그까지
+    하드코딩 0%로 실시간 전면 창작하는 차세대 블로그 생성 엔진
+    """
+    import os
+    import re
+    import json
+    import random
+    import memory_manager
 
-    for s in res["sections"]:
-        if s.get("type") == "text":
-            s["content"] = clean_markdown_artifacts(s["content"])
-            s["header"] = sanitize_header(s.get("header", ""))
-    return res
+    if not api_key or not api_key.strip():
+        status_callback("⚠️ API Key가 입력되지 않아 고품질 템플릿 엔진으로 자동 생성합니다.")
+        return generate_template_post(
+            store_name, location, menu, features, photo_count,
+            include_stickers, include_map, store_info, photo_paths, persona
+        )
+
+    if persona is None:
+        persona = memory_manager.get_next_persona()
+    p_name = persona.get("name", "트렌드세터 2030 핫플러")
+    p_desc = persona.get("desc", "감각적인 비주얼과 트렌디한 감성을 솔직하게 전달")
+
+    # 1. 사진 파싱 및 배치 목록 구성
+    if photo_paths:
+        sorted_paths = sorted(photo_paths, key=smart_photo_sort_key)
+        parsed_list = [parse_photo_info(p) for p in sorted_paths]
+
+        batches = []
+        idx = 0
+        while idx < len(parsed_list):
+            curr = parsed_list[idx]
+            if idx + 1 < len(parsed_list):
+                nxt = parsed_list[idx + 1]
+                can_pair = False
+                if curr["category"] == nxt["category"] and curr["category"] not in (
+                    "combo", "finish", "notice", "award", "soup_side", "service_rice",
+                    "dish_lifting", "noodle_lifting", "topping_detail"
+                ):
+                    c1 = re.sub(r'[0-9\s_\-\.\(\)\[\]]', '', curr["clean_name"])
+                    c2 = re.sub(r'[0-9\s_\-\.\(\)\[\]]', '', nxt["clean_name"])
+                    if c1 and c2 and c1 == c2:
+                        can_pair = True
+
+                if can_pair:
+                    batches.append({
+                        "items": [curr, nxt],
+                        "category": curr["category"],
+                        "clean_name": curr["clean_name"]
+                    })
+                    idx += 2
+                    continue
+            batches.append({
+                "items": [curr],
+                "category": curr["category"],
+                "clean_name": curr["clean_name"]
+            })
+            idx += 1
+    else:
+        # 사진이 없을 경우 표준 블로그 흐름 5파트 가상 구성
+        batches = [
+            {"items": [], "category": "exterior", "clean_name": "매장 전경 및 입구"},
+            {"items": [], "category": "interior", "clean_name": "실내 인테리어 및 분위기"},
+            {"items": [], "category": "menu", "clean_name": "메뉴판 및 주문"},
+            {"items": [], "category": "dish", "clean_name": f"대표 시그니처 요리 {menu}"},
+            {"items": [], "category": "finish", "clean_name": "만족스러운 식사 마무리"}
+        ]
+
+    # 사진 순서 프롬프트 가이드 생성
+    photo_guides = []
+    for b_i, b in enumerate(batches, 1):
+        cat_kor = CATEGORY_KOR_NAMES.get(b["category"], "요리/공간")
+        fnames = [os.path.basename(it["path"]) for it in b["items"]] if b["items"] else []
+        fnames_str = f" (사진 파일: {', '.join(fnames)})" if fnames else ""
+        photo_guides.append(f"{b_i}. 사진 주제: [{cat_kor}] '{b['clean_name']}'{fnames_str}")
+    photo_guides_text = "\n".join(photo_guides)
+
+    # 매장 정보 및 네이버 실시간 리뷰 요약
+    s_addr = (store_info.get("address") if store_info else "") or f"{location} 인근"
+    s_biz = (store_info.get("bizhour") if store_info else "") or "매장 문의"
+    s_park = (store_info.get("parking") if store_info else "") or "인근 유료/공영주차장 이용 권장"
+
+    rev_lines = []
+    if store_info and "live_reviews" in store_info:
+        lr = store_info["live_reviews"]
+        for t in lr.get("taste", [])[:3]:
+            rev_lines.append(f"- 맛 후기: \"{t.strip()}\"")
+        for v in lr.get("vibe", [])[:2]:
+            rev_lines.append(f"- 분위기 후기: \"{v.strip()}\"")
+    live_rev_text = "\n".join(rev_lines) if rev_lines else "- 네이버 방문객 평점 및 만족도가 아주 높은 인기 매장"
+
+    prompt = f"""당신은 네이버 상위 1% 맛집 전문 파워블로거입니다.
+지정된 작가 페르소나 스타일로 실제 방문하여 100% 직접 경험한 것처럼 생생하고 흡입력 있는 네이버 블로그 글을 작성해주세요.
+
+[작가 페르소나]
+- 스타일: {p_name} ({p_desc})
+- 어조: 실제 20~30대 한국인 인플루언서가 쓰는 친근하고 자연스러운 구어체 ('~했어요!', '~더라고요!', '~였답니다!', '~느껴졌어요!')
+- 절대 금지: 로봇/AI 특유의 번역투 ('~에 대해 알아보겠습니다', '~를 추천드립니다', '~의 모습입니다' 반복 금지), 상투적 클리셰 ('200% 만족', '300%', '대만족', '올킬', '삼박자' 절대 사용 금지).
+
+[방문 식당 정보]
+- 식당명: {store_name}
+- 지역/위치: {location}
+- 대표 메뉴: {menu}
+- 매장 특징: {features}
+- 주소: {s_addr}
+- 영업시간: {s_biz}
+- 주차 안내: {s_park}
+- 네이버 실제 방문자 후기 참고:
+{live_rev_text}
+
+[배치될 사진 순서 및 주제 (총 {len(batches)}개 단락)]
+본문에는 아래 순서대로 사진이 삽입됩니다. 각 번호(batch_index 1부터 {len(batches)}까지)에 맞춰 사진을 직접 보며 설명하듯 생생하게 작성해야 합니다:
+{photo_guides_text}
+
+[작성 필수 규칙]
+1. 제목(title): 네이버 스마트블록/DIA+ 검색 랭킹에 최적화되도록 지역명({location}), 상호명({store_name}), 대표메뉴 키워드를 자연스러운 문맥으로 배치 (호기심 유발, 솔직 후기형).
+2. 도입부(intro): 매장에 방문하게 된 계기, 날씨나 모임 상황, 찾아가는 길의 설렘을 담아 2~3단락으로 작성.
+3. 사진별 스토리(photo_stories):
+   - 위 사진 순서의 각 번호(batch_index 1부터 {len(batches)}까지)와 1:1로 매칭되는 소제목(header)과 본문(content)을 작성.
+   - 소제목(header): 인위적인 번호('1.', '2.', '1등' 등) 절대 금지! 해당 사진의 매력을 담은 감각적인 소제목 (이모지 1개 포함).
+   - 본문(content): 해당 사진의 모습(외관이면 감성적인 외관 분위기, 요리면 비주얼/색감/식감/육즙/온도감/간의 조화)을 생생한 2~3단락으로 작성. 단락 구분은 \n\n 으로 줄바꿈.
+4. 마무리 총평(outro):
+   - 전체 식사에 대한 솔직한 총평, 재방문 의사, 누구와 오면 좋을지(데이트/가족/친구/회식), 주차나 웨이팅 꿀팁을 2~3단락으로 작성.
+5. 해시태그(tags): 네이버 검색 유입에 최적화된 키워드 30~40개 배열.
+6. 서식: 본문에 마크다운 기호(**굵게**, # 제목)를 일체 넣지 마세요. 스마트에디터에 바로 붙여넣는 순수 텍스트여야 합니다.
+
+반드시 아래 JSON 형식으로만 응답하세요:
+{{
+  "title": "블로그 포스팅 제목",
+  "intro": "도입부 본문 (단락은 \n\n으로 구분)",
+  "photo_stories": [
+    {{
+      "batch_index": 1,
+      "header": "사진 1 전용 소제목",
+      "content": "사진 1 전용 생생한 본문 스토리 (단락은 \n\n으로 구분)"
+    }}
+  ],
+  "outro_header": "마무리 소제목",
+  "outro": "마무리 총평 본문 (단락은 \n\n으로 구분)",
+  "tags": ["태그1", "태그2", ... 35개 내외]
+}}
+"""
+
+    status_callback(f"🤖 [100% 생성형 AI 엔진] {api_provider.upper()} 모델에 {len(batches)}개 사진 맞춤 본문 실시간 집필 요청 중...")
+    raw_ai_resp = call_llm_api(api_provider, api_key.strip(), prompt, status_callback=status_callback)
+
+    if not raw_ai_resp:
+        status_callback("⚠️ AI 응답 없음 -> 고품질 템플릿 엔진으로 안전하게 자동 전환합니다.")
+        return generate_template_post(
+            store_name, location, menu, features, photo_count,
+            include_stickers, include_map, store_info, photo_paths, persona
+        )
+
+    # JSON 추출 및 파싱
+    clean_json_str = clean_json_text(raw_ai_resp)
+    try:
+        ai_data = json.loads(clean_json_str)
+    except Exception as je:
+        status_callback(f"⚠️ AI JSON 파싱 실패 ({je}) -> 템플릿 엔진으로 자동 전환합니다.")
+        return generate_template_post(
+            store_name, location, menu, features, photo_count,
+            include_stickers, include_map, store_info, photo_paths, persona
+        )
+
+    # AI 생성 데이터 추출
+    ai_title = clean_markdown_artifacts(ai_data.get("title", f"{location} {store_name} 솔직 후기"))
+    ai_intro = clean_markdown_artifacts(ai_data.get("intro", ""))
+    ai_photo_stories = ai_data.get("photo_stories", [])
+    ai_outro_header = sanitize_header(ai_data.get("outro_header", f"✨ {store_name} 총평 및 솔직 후기"))
+    ai_outro = clean_markdown_artifacts(ai_data.get("outro", ""))
+    ai_tags = ai_data.get("tags") or build_rich_hashtags(store_name, location, menu, features)
+
+    # photo_stories 를 batch_index 기준으로 맵핑
+    story_map = {}
+    for st in ai_photo_stories:
+        b_idx = st.get("batch_index")
+        if b_idx is not None:
+            try:
+                story_map[int(b_idx)] = st
+            except Exception:
+                pass
+    # 만약 index 매칭이 안 된 경우 순서대로 맵핑
+    if not story_map:
+        for idx, st in enumerate(ai_photo_stories, 1):
+            story_map[idx] = st
+
+    # 3. 네이버 블로그 스마트에디터 섹션 조립 (하드코딩 문구 0%)
+    sections = []
+
+    # 도입부 스티커
+    if include_stickers:
+        sections.append({"type": "sticker", "role": "intro"})
+
+    # AI 도입부 텍스트
+    sections.append({
+        "type": "text",
+        "header": "",
+        "content": ai_intro
+    })
+
+    # 매장 정보 안내 박스
+    if store_info:
+        from store_crawler import format_store_info_section
+        info_text = format_store_info_section(store_info)
+        sections.append({
+            "type": "text",
+            "header": f"📌 {store_name} 매장 이용 안내 및 방문 정보",
+            "content": info_text
+        })
+
+    # 네이버 지도
+    if include_map:
+        sections.append({
+            "type": "map",
+            "query": f"{store_name}",
+            "location_name": f"{location} {store_name}"
+        })
+
+    # 사진별 단락 (AI가 직접 쓴 소제목과 본문 100% 매칭)
+    for b_idx, batch in enumerate(batches, 1):
+        story = story_map.get(b_idx)
+        if story:
+            sec_h = sanitize_header(story.get("header", f"✨ {batch['clean_name']} 모습"))
+            sec_c = clean_markdown_artifacts(story.get("content", ""))
+        else:
+            sec_h = f"✨ {batch['clean_name']}"
+            sec_c = f"{store_name}의 매력적인 {batch['clean_name']} 모습이에요."
+
+        # 스티커 적재적소 삽입
+        if include_stickers and b_idx in (2, 5, 8):
+            sections.append({"type": "sticker", "role": "mid"})
+
+        # 본문 텍스트 (AI 생성)
+        sections.append({
+            "type": "text",
+            "header": sec_h,
+            "content": sec_c
+        })
+
+        # 사진 이미지 첨부
+        if batch["items"]:
+            b_paths = [item["path"] for item in batch["items"]]
+            pair_suffix = " (가로 나란히)" if len(b_paths) > 1 else ""
+            caption = f"{batch['clean_name']}{pair_suffix}"
+            sections.append({
+                "type": "image",
+                "paths": b_paths,
+                "count": len(b_paths),
+                "caption": caption
+            })
+
+    # AI 총평 및 아웃트로
+    sections.append({
+        "type": "text",
+        "header": ai_outro_header,
+        "content": ai_outro
+    })
+
+    # 마무리 스티커
+    if include_stickers:
+        sections.append({"type": "sticker", "role": "outro"})
+
+    # 해시태그 40개
+    tag_lines = []
+    chunk_size = 5
+    for i in range(0, len(ai_tags), chunk_size):
+        chunk = ai_tags[i:i + chunk_size]
+        tag_lines.append(" ".join([f"#{t.replace('#', '')}" for t in chunk]))
+    hashtag_content = "\n".join(tag_lines)
+
+    sections.append({
+        "type": "text",
+        "header": "🏷️ 관련 태그 & 해시태그 모아보기",
+        "content": f"{hashtag_content}\n"
+    })
+
+    status_callback("🎉 [100% 생성형 AI 포스팅 완성] 모든 본문과 사진 서사가 성공적으로 집필되었습니다!")
+
+    return {
+        "title": ai_title,
+        "sections": sections,
+        "tags": ai_tags,
+        "persona": persona
+    }

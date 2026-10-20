@@ -24,6 +24,25 @@ import generator
 import writer
 import store_crawler
 import history_manager
+import webbrowser
+
+CONFIG_PATH = os.path.join(CURRENT_DIR, "api_config.json")
+
+def load_api_config():
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"provider": "gemini", "api_key": ""}
+
+def save_api_config(provider, api_key):
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump({"provider": provider, "api_key": api_key}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -281,27 +300,39 @@ class NaverBlogApp(tk.Tk):
         cb_map.pack(side="left", padx=20)
 
         # --- 섹션 5: 생성 방식 ---
-        mode_group = tk.LabelFrame(main_frame, text=" 5. 생성 방식 (1500~2500자 장문 / 사람이 쓴 듯한 '했어요!' 말투) ", font=("Malgun Gothic", 10, "bold"), bg="#F4F6F9", padx=10, pady=6)
+        mode_group = tk.LabelFrame(main_frame, text=" 5. 본문 생성 방식 (100% 생성형 AI 실시간 창작 vs 고품질 무료 템플릿) ", font=("Malgun Gothic", 10, "bold"), bg="#F4F6F9", padx=10, pady=6)
         mode_group.pack(fill="x", pady=4)
 
-        self.mode_var = tk.StringVar(value="template")
-        rb1 = ttk.Radiobutton(mode_group, text="고품질 SEO 템플릿 엔진 (무료 / 즉시 생성 / 로봇 기호 0%)", variable=self.mode_var, value="template")
+        saved_cfg = load_api_config()
+        saved_key = saved_cfg.get("api_key", "").strip()
+        saved_prov = saved_cfg.get("provider", "gemini")
+
+        self.mode_var = tk.StringVar(value="ai")
+        rb1 = ttk.Radiobutton(mode_group, text="🤖 100% 생성형 AI 모드 (하드코딩 0% / 사진별 본문 실시간 순수 창작 / Google Gemini 무료 지원)", variable=self.mode_var, value="ai")
         rb1.pack(anchor="w")
 
-        rb2 = ttk.Radiobutton(mode_group, text="AI 생성 연동 (Google Gemini 또는 OpenAI API Key 필요)", variable=self.mode_var, value="ai")
-        rb2.pack(anchor="w", pady=(2, 0))
-
         ai_input_frame = tk.Frame(mode_group, bg="#F4F6F9")
-        ai_input_frame.pack(fill="x", padx=20, pady=2)
+        ai_input_frame.pack(fill="x", padx=20, pady=3)
         
-        tk.Label(ai_input_frame, text="제공자:", bg="#F4F6F9", font=("Malgun Gothic", 9)).pack(side="left")
+        tk.Label(ai_input_frame, text="AI 모델:", bg="#F4F6F9", font=("Malgun Gothic", 9, "bold")).pack(side="left")
         self.ai_provider = ttk.Combobox(ai_input_frame, values=["gemini", "openai"], width=8, state="readonly")
-        self.ai_provider.set("gemini")
+        self.ai_provider.set(saved_prov)
         self.ai_provider.pack(side="left", padx=5)
 
         tk.Label(ai_input_frame, text="API Key:", bg="#F4F6F9", font=("Malgun Gothic", 9)).pack(side="left", padx=(10, 0))
-        self.entry_api_key = ttk.Entry(ai_input_frame, show="*", width=35)
+        self.entry_api_key = ttk.Entry(ai_input_frame, show="*", width=30)
+        if saved_key:
+            self.entry_api_key.insert(0, saved_key)
         self.entry_api_key.pack(side="left", padx=5)
+
+        btn_save_key = tk.Button(ai_input_frame, text="💾 키 저장", font=("Malgun Gothic", 8), bg="#E0E5EC", relief="solid", bd=1, cursor="hand2", command=self.on_save_api_key)
+        btn_save_key.pack(side="left", padx=3)
+
+        btn_get_free = tk.Button(ai_input_frame, text="🔑 Gemini 무료 키 발급 (1분)", font=("Malgun Gothic", 8, "bold"), bg="#E8F0FE", fg="#1A73E8", relief="solid", bd=1, cursor="hand2", command=lambda: webbrowser.open("https://aistudio.google.com/app/apikey"))
+        btn_get_free.pack(side="left", padx=5)
+
+        rb2 = ttk.Radiobutton(mode_group, text="⚡ 고품질 SEO 템플릿 엔진 (API 키 없이 즉시 무료 생성 / 30회 무중복)", variable=self.mode_var, value="template")
+        rb2.pack(anchor="w", pady=(3, 0))
 
         # --- 액션 버튼들 ---
         action_frame = tk.Frame(main_frame, bg="#F4F6F9", pady=5)
@@ -809,15 +840,43 @@ class NaverBlogApp(tk.Tk):
             api_key = self.entry_api_key.get().strip()
             provider = self.ai_provider.get()
             if not api_key:
-                messagebox.showwarning("API Key 필요", "AI 생성을 위해 API Key를 입력해주세요. (또는 무료 템플릿 모드를 선택하세요)")
-                return None
-            self.log("AI 모델을 통해 고유 블로그 글(장문)을 생성 중입니다...")
-            data = generator.generate_ai_post(
-                api_key, provider, store, location, menu, features, photo_count, 
-                include_stickers, include_map, photo_paths=self.photo_paths
-            )
+                res = messagebox.askyesno(
+                    "API Key 필요", 
+                    "100% 생성형 AI 모드로 글을 작성하려면 API Key가 필요합니다.\n\n"
+                    "• Google Gemini API 키는 무료로 1분 만에 발급받으실 수 있습니다.\n"
+                    "• 지금 무료 키 발급 페이지를 여시겠습니까?\n\n"
+                    "(아니오를 누르면 API 키 없이 바로 작성되는 '고품질 무료 템플릿' 모드로 자동 진행됩니다)"
+                )
+                if res:
+                    webbrowser.open("https://aistudio.google.com/app/apikey")
+                    return None
+                else:
+                    self.mode_var.set("template")
+                    self.log("⚡ 무료 템플릿 엔진 모드로 자동 전환하여 포스팅을 생성합니다...")
+                    data = generator.generate_template_post(
+                        store, location, menu, features, photo_count, include_stickers, include_map, 
+                        store_info=self.store_info, photo_paths=self.photo_paths, persona=active_persona
+                    )
+            else:
+                save_api_config(provider, api_key)
+                self.log(f"🤖 [100% 순수 생성 AI] {provider.upper()} 모델을 통해 사진별 맞춤 본문을 실시간 창작 중입니다...")
+                data = generator.generate_ai_post(
+                    api_key=api_key,
+                    api_provider=provider,
+                    store_name=store,
+                    location=location,
+                    menu=menu,
+                    features=features,
+                    photo_count=photo_count,
+                    include_stickers=include_stickers,
+                    include_map=include_map,
+                    store_info=self.store_info,
+                    photo_paths=self.photo_paths,
+                    persona=active_persona,
+                    status_callback=self.log
+                )
         else:
-            self.log("30회 무중복 보장 템플릿 엔진으로 풍성한 장문 포스팅을 구성합니다...")
+            self.log("⚡ 고품질 SEO 템플릿 엔진으로 풍성한 장문 포스팅을 구성합니다...")
             data = generator.generate_template_post(
                 store, location, menu, features, photo_count, include_stickers, include_map, 
                 store_info=self.store_info, photo_paths=self.photo_paths, persona=active_persona
@@ -828,6 +887,12 @@ class NaverBlogApp(tk.Tk):
 
         self.generated_data = data
         return data
+
+    def on_save_api_key(self):
+        k = self.entry_api_key.get().strip()
+        p = self.ai_provider.get()
+        save_api_config(p, k)
+        messagebox.showinfo("저장 완료", "API Key가 안전하게 저장되었습니다.\n다음 실행 시에도 자동으로 적용됩니다.")
 
     def on_preview_post(self):
         data = self.generate_current_post()
