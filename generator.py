@@ -48,8 +48,13 @@ def parse_photo_info(filepath):
     # 앞에 붙은 번호, 기호 제거
     clean_name = re.sub(r'^[0-9_\-\.\s\[\]\(\)]+', '', raw_name).strip()
     clean_name = re.sub(r'[_\-]+', ' ', clean_name).strip()
-    if not clean_name:
-        clean_name = raw_name
+    
+    # '음식 1', '음식 수육 1', '메뉴 1' 등 불필요한 접두사 및 후행 번호 완전 정제
+    clean_name = re.sub(r'^(?:음식|메뉴|사진|요리)[\s_]*', '', clean_name).strip()
+    clean_name = re.sub(r'[\s_]*\d+$', '', clean_name).strip()
+    
+    if not clean_name or clean_name.isdigit() or clean_name in ["음식", "사진", "메뉴", "image", "img", "photo", "요리"]:
+        clean_name = "시그니처 요리" 
 
     clean_lower = clean_name.lower()
 

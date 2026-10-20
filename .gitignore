@@ -22,6 +22,7 @@ env/
 # 환경 변수 및 개인 API 키
 .env
 *.env
+api_config.json
 
 # OS 캐시 및 에디터 설정
 .DS_Store

@@ -236,51 +236,149 @@ def extract_naver_blog_params(url):
     return None, None
 
 
-def classify_blog_photo_context(ctx_lower, idx, total, known_menus=None):
+def smart_classify_photo_context(ctx_lower, idx, total, known_menus=None):
+    """
+    블로그 캡션과 식당의 실제 메뉴 목록을 대조하여 가장 자연스럽고 명확한 한글 파일명 키워드 추출
+    ('음식_1', '음식_2' 등 무의미한 번호 완전 박멸)
+    """
+    if not known_menus:
+        known_menus = []
+
+    # 1. 명확한 비음식 공간/이용 분류
     if any(k in ctx_lower for k in ["메뉴판", "차림표", "가격표", "주문서", "키오스크", "빌지", "주문메뉴"]):
         return "메뉴판"
-
     if any(k in ctx_lower for k in ["웨이팅", "대기", "캐치테이블", "테이블링", "조기마감", "줄서"]):
         return "웨이팅"
-
-    if known_menus:
-        for m in known_menus:
-            clean_m = re.sub(r'[^가-힣a-zA-Z0-9]', '', m)
-            if len(clean_m) >= 2 and clean_m.lower() in ctx_lower:
-                return f"음식_{clean_m}"
-
-    food_keywords = [
-        ("로스카츠", "음식_로스카츠"), ("히레카츠", "음식_히레카츠"), ("카츠산도", "음식_카츠산도"),
-        ("돈카츠", "음식_돈카츠"), ("돈가스", "음식_돈가스"), ("칼만두", "음식_칼만두"),
-        ("손만두", "음식_손만두"), ("만두전골", "음식_만두전골"), ("크루아상", "음식_크루아상"),
-        ("페이스트리", "음식_페이스트리"), ("삼겹살", "음식_삼겹살"), ("목살", "음식_목살"),
-        ("파스타", "음식_파스타"), ("피자", "음식_피자"), ("스테이크", "음식_스테이크")
-    ]
-    for kw, cat_name in food_keywords:
-        if kw in ctx_lower:
-            return cat_name
-
-    if any(k in ctx_lower for k in ["스프", "스읍", "국물", "상차림", "기본찬", "반찬", "세팅", "소스", "양념장", "김치", "깍두기", "장국", "밥과 국"]):
-        return "상차림"
-
-    if any(k in ctx_lower for k in ["내부", "인테리어", "좌석", "다찌석", "다찌", "테이블", "자리", "착석", "착~석", "오픈키친", "홀", "조명", "분위기"]):
+    if any(k in ctx_lower for k in ["외관", "간판", "입구", "전경", "도착", "외부", "건물", "찾아가는", "파사드", "주소", "매장앞"]):
+        return "외관"
+    if any(k in ctx_lower for k in ["내부", "인테리어", "좌석", "다찌석", "다찌", "테이블", "자리", "착석", "오픈키친", "홀", "조명", "분위기"]):
         return "내부_인테리어"
+    if any(k in ctx_lower for k in ["셀프바", "셀프존", "셀프코너", "무료리필", "밥솥", "공기밥"]):
+        return "셀프바"
+    if any(k in ctx_lower for k in ["기본찬", "밑반찬", "반찬", "상차림", "세팅", "소스", "양념장", "김치", "단무지", "깍두기", "장국", "스프"]):
+        return "기본반찬"
+    if any(k in ctx_lower for k in ["마무리", "총평", "완식", "다먹음", "영수증", "빈접시", "빈그릇", "클리어", "배불"]):
+        return "완식"
 
-    if any(k in ctx_lower for k in ["외관", "간판", "입구", "전경", "도착", "외부", "건물", "찾아가는", "파사드", "주소"]):
+    # 2. 식당의 실제 대표 메뉴 목록과 대조 (음식_ 접두사 없이 순수 요리명 부여)
+    for m in known_menus:
+        clean_m = re.sub(r'[^가-힣a-zA-Z0-9]', '', m)
+        if len(clean_m) >= 2 and clean_m.lower() in ctx_lower:
+            if any(k in ctx_lower for k in ["면발", "면치기", "가락", "후루룩"]):
+                return f"{clean_m}_면발"
+            if any(k in ctx_lower for k in ["한점", "한입", "젓가락", "집어", "숟가락", "들고"]):
+                return f"{clean_m}_한점"
+            if any(k in ctx_lower for k in ["국물", "육수", "뚝배기", "보글"]):
+                return f"{clean_m}_국물"
+            return clean_m
+
+    # 3. 음식 특정 키워드 패턴 추출 (짬뽕, 짜장, 탕수육, 만두, 칼국수, 카츠, 삼겹살, 파스타 등)
+    food_pattern = r'([가-힣]{2,10}(?:짬뽕|짜장|탕수육|만두|칼국수|국수|라멘|우동|파스타|피자|스테이크|카츠|돈까스|삼겹살|목살|갈비|고기|수육|보쌈|국밥|곰탕|전골|찌개|탕|볶음밥|덮밥|비빔밥|초밥|스시|회|조개|구이|찜|치킨|버거|디저트|케이크|크루아상|빵))'
+    m_food = re.search(food_pattern, ctx_lower)
+    if m_food:
+        matched = m_food.group(1)
+        if any(k in ctx_lower for k in ["면발", "면치기"]):
+            return f"{matched}_면발"
+        if any(k in ctx_lower for k in ["한점", "한입", "젓가락"]):
+            return f"{matched}_한점"
+        return matched
+
+    # 4. 순서 기반 스마트 폴백 (알려진 실제 메뉴 순환 할당)
+    if idx <= 1:
         return "외관"
-
-    if any(k in ctx_lower for k in ["마무리", "총평", "완식", "다먹음", "영수증", "빈접시", "클리어", "배불"]):
-        if idx >= total - 3:
-            return "마무리"
-
-    if idx <= 2:
-        return "외관"
-    elif idx <= 5:
+    elif idx <= 3:
         return "내부_인테리어"
     elif idx >= total - 1:
-        return "마무리"
+        return "완식"
     else:
-        return "음식"
+        if known_menus:
+            m_idx = (idx - 4) % len(known_menus)
+            clean_m = re.sub(r'[^가-힣a-zA-Z0-9]', '', known_menus[m_idx])
+            return clean_m
+        return "시그니처_메뉴"
+
+
+def classify_photos_smart_and_ai(photo_items, store_name, location, menu_cands, status_callback=print):
+    """
+    블로그 사진 캡션과 문맥을 분석하여 각 사진에 최적화된 파일명 키워드 목록 반환
+    1순위: AI API (Gemini/OpenAI) 등록 시 실시간 지능형 문맥 분석
+    2순위: 네이버 플레이스 실제 메뉴 기반 스마트 NLP 분류
+    """
+    total = len(photo_items)
+    if total == 0:
+        return []
+
+    # 1. API 키 확인 (api_config.json)
+    cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_config.json")
+    api_key = ""
+    api_provider = "gemini"
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                api_key = cfg.get("api_key", "").strip()
+                api_provider = cfg.get("provider", "gemini")
+        except Exception:
+            pass
+
+    # AI API가 설정되어 있다면 AI 실시간 사진 작명 시도
+    if api_key:
+        try:
+            import generator
+            status_callback(f"🤖 [AI 사진 문맥 분석] {api_provider.upper()}로 블로그 사진 {total}장의 실제 내용을 분석 중...")
+            
+            caption_list = []
+            for idx, item in enumerate(photo_items, 1):
+                ctx = item.get("context", "").strip()[:80]
+                caption_list.append(f"{idx}. {ctx}" if ctx else f"{idx}. (설명 없음)")
+            captions_text = "\n".join(caption_list)
+            
+            prompt = f"""식당명: {store_name} ({location})
+대표메뉴: {', '.join(menu_cands) if menu_cands else '시그니처 요리'}
+
+아래는 블로그 글에서 추출한 사진 {total}장의 위치별 캡션/설명 텍스트입니다:
+{captions_text}
+
+각 사진의 캡션과 식당 정보를 분석하여, 각 사진에 가장 어울리는 한국어 파일명 키워드를 하나씩 정해주세요.
+- 외관/간판 -> 외관
+- 실내/좌석 -> 실내_인테리어
+- 메뉴판/가격표 -> 메뉴판
+- 밑반찬/상차림 -> 기본반찬
+- 특정 요리 -> 실제 요리명(예: '돌짬뽕', '탕수육', '돌짜장', '만두' 등)
+- 요리 먹는 장면 -> '돌짬뽕_면발', '고기_한점' 등
+- 다 먹은 그릇/영수증 -> 완식
+* 절대로 '음식_1', '음식_2' 같은 무의미한 번호나 '음식'이라는 단어만 쓰지 말고 실제 요리명을 써주세요.
+
+JSON 배열로만 응답하세요:
+[
+  {{"idx": 1, "name": "외관"}},
+  {{"idx": 2, "name": "실내_인테리어"}}
+]
+"""
+            raw_resp = generator.call_llm_api(api_provider, api_key, prompt, status_callback=lambda x: None)
+            if raw_resp:
+                clean_json = generator.clean_json_text(raw_resp)
+                parsed = json.loads(clean_json)
+                ai_names = {}
+                for it in parsed:
+                    if "idx" in it and "name" in it:
+                        ai_names[int(it["idx"])] = re.sub(r'[^가-힣a-zA-Z0-9_]', '', it["name"]).strip()
+                if len(ai_names) >= total // 2:
+                    result = []
+                    for i in range(1, total + 1):
+                        result.append(ai_names.get(i) or "요리")
+                    status_callback(f"✅ [AI 사진 분석 완료] 사진 {total}장의 고유 파일명이 지능형으로 작명되었습니다.")
+                    return result
+        except Exception as e:
+            status_callback(f"AI 사진 분석 안내: {e} -> 스마트 NLP 분석기로 자동 대체합니다.")
+
+    # 2. 오프라인 스마트 NLP 분석기 (실제 크롤링된 메뉴 기반 매칭)
+    status_callback(f"🔍 [스마트 문맥 분석] 사진 캡션과 실제 메뉴 목록을 대조하여 알맞은 파일명을 추출합니다...")
+    result = []
+    for i, item in enumerate(photo_items):
+        cat = smart_classify_photo_context(item["context"].lower(), i, total, known_menus=menu_cands)
+        result.append(cat)
+    return result
 
 
 def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
@@ -411,59 +509,63 @@ def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
 
     status_callback(f"✅ [블로그 정보 추출] 상호명: '{found_store}', 지역: '{location_cand}'")
 
-    # 7. 본문 텍스트에서 대표 메뉴 후보 발굴
-    menu_cands = []
-    common_menu_keywords = [
-        "로스카츠", "히레카츠", "특로스카츠", "카츠산도", "버크셔K", "치즈카츠", 
-        "크루아상", "페이스트리", "피스타치오", "아메리카노", "라떼", "에스프레소",
-        "칼만두", "손만두", "만두전골", "조랭이떡만둣국", "보쌈", "수육",
-        "삼겹살", "목살", "항정살", "가브리살", "된장찌개", "김치찌개", "볶음밥",
-        "파스타", "피자", "리조또", "스테이크", "샐러드"
-    ]
-    for kw in common_menu_keywords:
-        if kw in all_post_text and kw not in menu_cands:
-            menu_cands.append(kw)
-            if len(menu_cands) >= 3:
-                break
-                
-    menu_str = ", ".join(menu_cands) if menu_cands else "대표 시그니처 메뉴"
-
-    # 8. 네이버 검색을 통한 상세 정보(영업시간, 전화번호, 주차 등) 보강
+    # 7. 네이버 플레이스 정밀 조회를 통한 실제 매장 정보(메뉴, 영업시간, 주차 등) 먼저 확보
     status_callback(f"📋 '{location_cand} {found_store}'의 상세 매장 정보 조회 중...")
     details = fetch_store_details(found_store, location_cand)
     if found_address and details.get("address") == "매장 위치 정보 참조":
         details["address"] = found_address
-    if details.get("popular_menus") and not menu_cands:
-        menu_str = ", ".join(details["popular_menus"][:3])
 
-    # 9. 실사 사진 다운로드 및 스마트 네이밍 저장
+    # 실제 식당의 인기 메뉴 목록 수집 (하드코딩 0%)
+    all_menus = []
+    if details.get("popular_menus"):
+        for m in details["popular_menus"]:
+            clean_m = re.sub(r'[^가-힣a-zA-Z0-9]', '', m)
+            if clean_m and clean_m not in all_menus:
+                all_menus.append(clean_m)
+
+    # 본문 텍스트에서도 추가 메뉴 발굴
+    food_pattern = r'([가-힣]{2,8}(?:짬뽕|짜장|탕수육|만두|칼국수|국수|라멘|우동|파스타|피자|스테이크|카츠|돈까스|삼겹살|목살|갈비|고기|수육|보쌈|국밥|곰탕|전골|찌개|탕|볶음밥|덮밥|비빔밥|초밥|스시|회|조개|구이|찜|치킨|버거|디저트|케이크|크루아상|빵))'
+    for kw in re.findall(food_pattern, all_post_text):
+        if kw not in all_menus and len(kw) >= 2:
+            all_menus.append(kw)
+
+    if not all_menus:
+        all_menus = ["대표요리"]
+
+    menu_str = ", ".join(all_menus[:3])
+
+    # 8. 실사 사진 스마트 네이밍 분류 및 다운로드 (AI & 스마트 NLP)
     saved_photos = []
     if photo_items:
-        safe_store = re.sub(r'[\\/*?:"<>|]', "", found_store).replace(" ", "_")
-        safe_loc = re.sub(r'[\\/*?:"<>|]', "", location_cand).replace(" ", "_")
+        safe_store = re.sub(r'[\/*?:"<>|]', "", found_store).replace(" ", "_")
+        safe_loc = re.sub(r'[\/*?:"<>|]', "", location_cand).replace(" ", "_")
         target_dir = os.path.join(DOWNLOADS_ROOT, f"{safe_loc}_{safe_store}")
         os.makedirs(target_dir, exist_ok=True)
         
-        status_callback(f"💾 블로그 사진 {len(photo_items)}장 다운로드 및 스마트 네이밍 저장 중 -> {target_dir}")
+        status_callback(f"💾 블로그 사진 {len(photo_items)}장 분석 및 다운로드 시작 -> {target_dir}")
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Referer': 'https://blog.naver.com'
         }
         
+        # 각 사진에 대한 지능형 스마트 파일명 리스트 생성
+        photo_names = classify_photos_smart_and_ai(photo_items, found_store, location_cand, all_menus, status_callback=status_callback)
+        
         cat_counts = {}
         for i, item in enumerate(photo_items):
-            cat = classify_blog_photo_context(item["context"].lower(), i, len(photo_items), known_menus=menu_cands)
+            cat = photo_names[i] if i < len(photo_names) else "요리"
             c_cnt = cat_counts.get(cat, 0) + 1
             cat_counts[cat] = c_cnt
             
-            fname = f"{len(saved_photos) + 1:02d}_{cat}_{c_cnt}.jpg"
+            suffix = f"_{c_cnt}" if c_cnt > 1 else ""
+            fname = f"{len(saved_photos) + 1:02d}_{cat}{suffix}.jpg"
             fpath = os.path.join(target_dir, fname)
             
             try:
                 req = urllib.request.Request(item["src"], headers=headers)
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     img_data = resp.read()
-                if len(img_data) < 10000:  # 스티커/아이콘 등 10KB 미만 필터링
+                if len(img_data) < 10000:
                     continue
                 with open(fpath, "wb") as f:
                     f.write(img_data)
@@ -471,7 +573,7 @@ def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
             except Exception as e:
                 print(f"이미지 저장 오류 ({fname}): {e}")
 
-        status_callback(f"🎉 블로그 실사 {len(saved_photos)}장 다운로드 완료! (저장위치: {target_dir})")
+        status_callback(f"🎉 블로그 실사 {len(saved_photos)}장 다운로드 및 스마트 파일명 지정 완료! (저장위치: {target_dir})")
 
     features_cand = details.get("ai_summary", f"{location_cand}에서 높은 평점과 인기를 자랑하는 핫플레이스 찐맛집")
 
@@ -897,11 +999,11 @@ def download_store_photos(store_name, location="", menu="", max_count=14, status
                                     elif cat_count == 1:
                                         fname = os.path.join(target_dir, f"{file_idx:02d}_{clean_menu}_디테일.jpg")
                                     elif cat_count == 2:
-                                        fname = os.path.join(target_dir, f"{file_idx:02d}_음식_{clean_menu}_한점.jpg")
+                                        fname = os.path.join(target_dir, f"{file_idx:02d}_{clean_menu}_한점.jpg")
                                     elif cat_count == 3:
-                                        fname = os.path.join(target_dir, f"{file_idx:02d}_음식_{clean_menu}_클로즈업.jpg")
+                                        fname = os.path.join(target_dir, f"{file_idx:02d}_{clean_menu}_클로즈업.jpg")
                                     elif cat_count == 4:
-                                        fname = os.path.join(target_dir, f"{file_idx:02d}_음식_{clean_menu}_조합.jpg")
+                                        fname = os.path.join(target_dir, f"{file_idx:02d}_{clean_menu}_조합.jpg")
                                     else:
                                         fname = os.path.join(target_dir, f"{file_idx:02d}_마무리.jpg")
                                 else:
@@ -942,7 +1044,7 @@ def download_store_photos(store_name, location="", menu="", max_count=14, status
                                 if not clean:
                                     continue
 
-                                fname = os.path.join(target_dir, f"{file_idx:02d}_음식_{clean_menu}_{extra_c + 1}.jpg")
+                                fname = os.path.join(target_dir, f"{file_idx:02d}_{clean_menu}_{extra_c + 1}.jpg")
                                 with open(fname, 'wb') as f:
                                     f.write(img_data)
                                 saved_paths.append(fname)
