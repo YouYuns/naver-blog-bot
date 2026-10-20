@@ -534,7 +534,7 @@ JSON 배열로만 응답하세요:
     return result
 
 
-def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
+def crawl_store_and_photos_from_blog(blog_url, status_callback=print, on_store_found=None):
     """
     네이버 블로그 포스팅 URL로부터 상호명, 주소, 위치, 메뉴, 특징을 파악하고
     포스팅 내의 실제 고화질 실사 사진들을 순서 및 문맥에 맞게 스마트 네이밍하여 다운로드
@@ -686,6 +686,14 @@ def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
         all_menus = ["대표요리"]
 
     menu_str = ", ".join(all_menus[:3])
+    features_cand = details.get("ai_summary") or f"{location_cand}에서 높은 평점과 인기를 자랑하는 핫플레이스 찐맛집"
+    
+    # 상호명, 위치, 대표메뉴 식별 완료 즉시 콜백 호출 (사용자 UI에 1~2초 만에 즉시 반영)
+    if on_store_found:
+        try:
+            on_store_found(found_store, location_cand, menu_str, features_cand)
+        except Exception as e:
+            print(f"on_store_found 콜백 오류: {e}")
 
     # 8. 실사 사진 스마트 네이밍 분류 및 다운로드 (AI & 스마트 NLP)
     saved_photos = []
@@ -737,7 +745,7 @@ def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
         status_callback(f"🎉 블로그 실사 {len(saved_photos)}장 다운로드 완료! Vision AI 정밀 판독을 진행합니다...")
         saved_photos = classify_photos_with_vision(saved_photos, found_store, location_cand, known_menus=all_menus, status_callback=status_callback)
 
-    features_cand = details.get("ai_summary", f"{location_cand}에서 높은 평점과 인기를 자랑하는 핫플레이스 찐맛집")
+    
 
     return {
         "store_name": found_store,
@@ -749,7 +757,7 @@ def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
     }
 
 
-def resolve_store_from_address_or_url(input_query, status_callback=print):
+def resolve_store_from_address_or_url(input_query, status_callback=print, on_store_found=None):
     """
     사용자가 입력한 주소(도로명/지번) 또는 URL(네이버 지도/플레이스 링크/블로그 포스팅 링크)로부터
     상호명, 위치, 대표메뉴, 특징 및 매장 상세 정보를 자동 판별
@@ -782,7 +790,7 @@ def resolve_store_from_address_or_url(input_query, status_callback=print):
         
         # 블로그 포스팅 링크인 경우 즉시 블로그 전용 실사 수집기로 분기
         if "blog.naver.com" in target_url:
-            return crawl_store_and_photos_from_blog(target_url, status_callback=status_callback)
+            return crawl_store_and_photos_from_blog(target_url, status_callback=status_callback, on_store_found=on_store_found)
 
         parsed = urllib.parse.urlparse(target_url)
         qs = urllib.parse.parse_qs(parsed.query)
@@ -928,6 +936,12 @@ def resolve_store_from_address_or_url(input_query, status_callback=print):
         features_cand = details["ai_summary"]
     else:
         features_cand = f"현지인과 여행객이 함께 찾는 {location_cand}의 핫플레이스 찐맛집"
+
+    if on_store_found:
+        try:
+            on_store_found(found_store, location_cand, menu_cand, features_cand)
+        except Exception as e:
+            print(f"on_store_found 오류: {e}")
 
     return {
         "store_name": found_store,

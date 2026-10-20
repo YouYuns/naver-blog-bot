@@ -185,6 +185,7 @@ class NaverBlogApp(tk.Tk):
             if "예)" in self.entry_address_or_url.get():
                 self.entry_address_or_url.delete(0, tk.END)
         self.entry_address_or_url.bind("<FocusIn>", on_addr_focus_in)
+        self.entry_address_or_url.bind("<Return>", lambda e: self.on_resolve_address_or_url())
 
         self.btn_resolve_address = tk.Button(
             address_bar,
@@ -207,25 +208,21 @@ class NaverBlogApp(tk.Tk):
         # 상호명
         tk.Label(grid, text="식당 상호명:", font=("Malgun Gothic", 9, "bold"), bg="#F4F6F9").grid(row=0, column=0, sticky="w", pady=3)
         self.entry_store = ttk.Entry(grid, font=("Malgun Gothic", 10), width=28)
-        self.entry_store.insert(0, "능동미나리")
         self.entry_store.grid(row=0, column=1, sticky="w", padx=5, pady=3)
 
         # 위치/지역
         tk.Label(grid, text="지역 / 위치:", font=("Malgun Gothic", 9, "bold"), bg="#F4F6F9").grid(row=0, column=2, sticky="w", padx=(15, 0), pady=3)
         self.entry_location = ttk.Entry(grid, font=("Malgun Gothic", 10), width=25)
-        self.entry_location.insert(0, "성수동")
         self.entry_location.grid(row=0, column=3, sticky="w", padx=5, pady=3)
 
         # 대표 메뉴
         tk.Label(grid, text="대표 메뉴:", font=("Malgun Gothic", 9, "bold"), bg="#F4F6F9").grid(row=1, column=0, sticky="w", pady=3)
         self.entry_menu = ttk.Entry(grid, font=("Malgun Gothic", 10), width=28)
-        self.entry_menu.insert(0, "미나리 곰탕, 미나리 수육전골, 미나리 육회비빔밥")
         self.entry_menu.grid(row=1, column=1, sticky="w", padx=5, pady=3)
 
         # 특징 및 메모
         tk.Label(grid, text="특징 / 꿀팁:", font=("Malgun Gothic", 9, "bold"), bg="#F4F6F9").grid(row=1, column=2, sticky="w", padx=(15, 0), pady=3)
         self.entry_features = ttk.Entry(grid, font=("Malgun Gothic", 10), width=25)
-        self.entry_features.insert(0, "향긋한 청도 미나리 듬뿍, 야들야들한 한우 수육, 줄서는식당 대기 1위 핫플")
         self.entry_features.grid(row=1, column=3, sticky="w", padx=5, pady=3)
 
         # 가게 정보 자동 검색 버튼 바
@@ -361,8 +358,12 @@ class NaverBlogApp(tk.Tk):
         self.log_text = scrolledtext.ScrolledText(log_group, wrap="word", height=8, font=("Consolas", 9))
         self.log_text.pack(fill="both", expand=True)
 
-        # 시작 시 '능동미나리'(성수동) 자동 세팅 및 기확보된 실사 사진 즉시 연결
-        self.apply_preset("능동미나리", "성수동", "미나리 곰탕, 미나리 수육전골, 미나리 육회비빔밥", "향긋한 청도 미나리 듬뿍, 야들야들한 한우 수육, 줄서는식당 대기 1위 핫플")
+        # 시작 시 깨끗한 기본 상태 유지 (하드코딩 0%, 주소/링크 입력 시 자동 인식)
+        self.photo_paths = []
+        self.custom_photos_selected = False
+        self.lbl_store_fetch_status.config(text="가게 정보: 미입력 (상단에 주소나 블로그 링크를 넣으시면 1초 만에 자동 분석됩니다)", fg="#555")
+        self.lbl_photo_info.config(text="선택된 사진: 0장 (주소/링크 입력 시 비전 AI가 맞춤 실사를 자동 다운로드합니다)", fg="#666")
+        self.log("🚀 [준비 완료] 상단에 네이버 플레이스 주소 또는 블로그 링크를 입력하시면 상호명, 위치, 대표메뉴, 매장정보 및 사진이 100% 자동 채워집니다.")
 
     def log(self, msg):
         self.log_text.insert(tk.END, f"{msg}\n")
@@ -617,11 +618,36 @@ class NaverBlogApp(tk.Tk):
             messagebox.showwarning("주소 또는 링크 입력 필요", "식당 도로명 주소(예: 서울 종로구 북촌로2길 5-6) 또는 네이버 플레이스 URL 링크를 입력해주세요.")
             return
 
+        # 이전 식당 값 즉시 비우고 실시간 진행 안내 (메인 스레드에서 0.01초 만에 즉각 반응)
+        self.btn_resolve_address.config(state="disabled", text="⏳ 매장 탐색 중...")
+        self.entry_store.delete(0, tk.END)
+        self.entry_store.insert(0, "⏳ 상호명 추출 중...")
+        self.entry_location.delete(0, tk.END)
+        self.entry_location.insert(0, "⏳ 위치 확인 중...")
+        self.entry_menu.delete(0, tk.END)
+        self.entry_menu.insert(0, "⏳ 메뉴 분석 중...")
+        self.entry_features.delete(0, tk.END)
+        self.entry_features.insert(0, "⏳ 특징 분석 중...")
+        self.lbl_store_fetch_status.config(text="가게 정보: ⏳ 링크/주소에서 매장 정보를 실시간 추출 중...", fg="#0066cc")
+        self.lbl_photo_info.config(text="선택된 사진: 0장 (식당 식별 후 맞춤 실사 사진 다운로드 예정)", fg="#666")
+
         def task():
-            self.btn_resolve_address.config(state="disabled", text="⏳ 주소 분석 중...")
+            def on_store_identified(st_name, loc, m_str, feat_str):
+                # 블로그 제목/지도에서 매장이 식별되는 즉시(1~2초) UI에 바로 표시!
+                self.entry_store.delete(0, tk.END)
+                self.entry_store.insert(0, st_name)
+                self.entry_location.delete(0, tk.END)
+                self.entry_location.insert(0, loc)
+                self.entry_menu.delete(0, tk.END)
+                self.entry_menu.insert(0, m_str)
+                self.entry_features.delete(0, tk.END)
+                self.entry_features.insert(0, feat_str)
+                self.lbl_store_fetch_status.config(text=f"✅ 매장 식별 완료: {st_name} ({loc})", fg="#03C75A")
+                self.lbl_photo_info.config(text=f"📷 '{st_name}' 실사 사진 다운로드 및 Vision AI 분석 중...", fg="#0066cc")
+
             self.log(f"📍 [주소/링크 원스톱 처리] '{query}' 분석 및 매장 탐색 시작...")
             try:
-                res = store_crawler.resolve_store_from_address_or_url(query, status_callback=self.log)
+                res = store_crawler.resolve_store_from_address_or_url(query, status_callback=self.log, on_store_found=on_store_identified)
                 if not res or not res.get("store_name"):
                     self.log("⚠️ 해당 주소에서 식당 정보를 찾지 못했습니다. 상호명을 직접 입력해주세요.")
                     return

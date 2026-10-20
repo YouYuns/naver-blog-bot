@@ -1242,7 +1242,10 @@ def call_llm_api(provider, api_key, prompt, status_callback=print):
             except urllib.error.HTTPError as he:
                 err_body = he.read().decode('utf-8', errors='ignore')
                 last_error = f"HTTP {he.code}: {err_body[:150]}"
-                if he.code == 404:
+                if he.code in [404, 429, 503]:
+                    import time
+                    if he.code == 429:
+                        time.sleep(2)
                     continue  # Try next model name
                 else:
                     status_callback(f"⚠️ Gemini API 오류 ({m_name}): {last_error}")
