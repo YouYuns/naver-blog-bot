@@ -26,6 +26,7 @@ import store_crawler
 import history_manager
 import webbrowser
 
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(CURRENT_DIR, "api_config.json")
 
 def load_api_config():
@@ -44,7 +45,6 @@ def save_api_config(provider, api_key):
     except Exception:
         pass
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 class NaverBlogApp(tk.Tk):
