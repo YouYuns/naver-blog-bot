@@ -49,9 +49,13 @@ def parse_photo_info(filepath):
     clean_name = re.sub(r'^[0-9_\-\.\s\[\]\(\)]+', '', raw_name).strip()
     clean_name = re.sub(r'[_\-]+', ' ', clean_name).strip()
     
-    # '음식 1', '음식 수육 1', '메뉴 1' 등 불필요한 접두사 및 후행 번호 완전 정제
-    clean_name = re.sub(r'^(?:음식|메뉴|사진|요리)[\s_]*', '', clean_name).strip()
+    # '음식 1', '메뉴 1' 등 불필요한 접두사 및 후행 번호 완전 정제 ('메뉴판'은 온전히 보존)
+    if not clean_name.startswith("메뉴판"):
+        clean_name = re.sub(r'^(?:음식|사진|요리)[\s_]*', '', clean_name).strip()
+        clean_name = re.sub(r'^메뉴[\s_]+', '', clean_name).strip()
     clean_name = re.sub(r'[\s_]*\d+$', '', clean_name).strip()
+    if clean_name in ["판", "차림표"]:
+        clean_name = "메뉴판"
     
     if not clean_name or clean_name.isdigit() or clean_name in ["음식", "사진", "메뉴", "image", "img", "photo", "요리"]:
         clean_name = "시그니처 요리" 
@@ -1211,7 +1215,7 @@ def call_llm_api(provider, api_key, prompt, status_callback=print):
 
     # 1. Google Gemini
     if "gemini" in p_lower:
-        gemini_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+        gemini_models = ["gemini-3-flash-preview", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
         last_error = None
         for m_name in gemini_models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{m_name}:generateContent?key={api_key}"

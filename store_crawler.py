@@ -9,6 +9,8 @@ import os
 import sys
 import re
 import io
+import json
+import base64
 import urllib.parse
 import urllib.request
 import numpy as np
@@ -298,6 +300,157 @@ def smart_classify_photo_context(ctx_lower, idx, total, known_menus=None):
         return "시그니처_메뉴"
 
 
+
+def classify_photos_with_vision(image_paths, store_name, location, known_menus=None, status_callback=print):
+    """
+    구글 제미나이 멀티모달 비전(Vision AI)을 활용하여 다운로드된 실제 이미지 파일들을 직접 시각적으로 분석.
+    - 실제 사진의 시각 정보를 보고 외관, 실내_인테리어, 실내_간판, 메뉴판, 밑반찬, 실제 요리명(나베, 후토마키, 튀김 등)을 100% 식별.
+    - 무의미한 번호('음식_1', '음식_2')나 엉뚱한 메뉴명('수육' 등)을 원천 박멸.
+    """
+    if not image_paths:
+        return image_paths
+
+    cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_config.json")
+    api_key = ""
+    api_provider = "gemini"
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                api_key = cfg.get("api_key", "").strip()
+                api_provider = cfg.get("provider", "gemini")
+        except Exception:
+            pass
+
+    if not api_key:
+        status_callback("ℹ️ Vision AI API 키 미등록 -> 스마트 문맥 분석 파일명을 유지합니다.")
+        return image_paths
+
+    status_callback(f"👁️ [비전 AI 실물 사진 분석] Gemini Vision으로 다운로드된 실사 사진 {len(image_paths)}장의 실제 이미지를 직접 판독 중...")
+
+    def compress_img(filepath, max_size=768):
+        try:
+            with Image.open(filepath) as img:
+                img = img.convert("RGB")
+                img.thumbnail((max_size, max_size))
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=80)
+                return base64.b64encode(buf.getvalue()).decode('utf-8')
+        except Exception:
+            with open(filepath, 'rb') as f:
+                return base64.b64encode(f.read()).decode('utf-8')
+
+    results = {}
+    chunk_size = 10
+    total = len(image_paths)
+
+    for chunk_start in range(0, total, chunk_size):
+        chunk = image_paths[chunk_start:chunk_start + chunk_size]
+        parts = []
+        for idx_in_chunk, fpath in enumerate(chunk):
+            global_idx = chunk_start + idx_in_chunk + 1
+            b64_data = compress_img(fpath)
+            parts.append({'text': f'[{global_idx}번 사진]'})
+            parts.append({'inlineData': {'mimeType': 'image/jpeg', 'data': b64_data}})
+
+        menu_hint = f"참고 메뉴: {', '.join(known_menus[:5])}" if known_menus else ""
+        prompt = f"""식당명: {location} {store_name}
+{menu_hint}
+
+위 {chunk_start + 1}번부터 {chunk_start + len(chunk)}번까지의 실제 사진 이미지를 직접 보고, 각 사진의 핵심 피사체를 가장 적절한 한국어 명사로 분류해주세요:
+- 건물 바깥 모습/도로 전경 -> 외관
+- 매장 입구/출입문/웨이팅 공간 -> 매장입구 또는 웨이팅
+- 매장 실내 좌석/테이블/조명 -> 실내_인테리어
+- 벽면/간판에 적힌 상호명 또는 조형물 -> 실내_간판
+- 키오스크/주문서/메뉴판/가격표 -> 메뉴판
+- 밑반찬/소스/국물 -> 기본반찬
+- 음식은 사진에 보이는 실제 요리명(예: 나베, 후토마키, 모둠튀김, 우동_면발 등)으로 분류
+- 다 먹은 빈 그릇/영수증 -> 완식
+* 절대로 '음식_1', '음식_2' 같은 무의미한 번호나 단순 '음식'이라는 단어는 사용하지 마세요.
+* 사진에 보이지도 않는 다른 메뉴(예: 이자카야인데 수육 등)를 지어내지 마세요.
+
+반드시 JSON 배열 형식으로만 응답하세요:
+[
+  {{"idx": {chunk_start + 1}, "name": "외관"}}
+]
+"""
+        parts.append({'text': prompt})
+
+        gemini_vision_models = ["gemini-3-flash-preview", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
+        for vm in gemini_vision_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{vm}:generateContent?key={api_key}"
+            payload = {
+                'contents': [{'parts': parts}],
+                'generationConfig': {'responseMimeType': 'application/json'}
+            }
+            try:
+                req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_json = json.loads(resp.read().decode('utf-8'))
+                    raw_ans = resp_json['candidates'][0]['content']['parts'][0]['text']
+                    clean_ans = re.sub(r'^```json\s*', '', raw_ans.strip())
+                    clean_ans = re.sub(r'```$', '', clean_ans.strip())
+                    parsed = json.loads(clean_ans)
+                    for item in parsed:
+                            clean_name = re.sub(r'[^가-힣a-zA-Z0-9_]', '', item["name"]).strip()
+                            if not clean_name.startswith("메뉴판"):
+                                clean_name = re.sub(r'^(?:음식|사진|image|img|요리)[\s_]*', '', clean_name).strip()
+                                clean_name = re.sub(r'^메뉴[\s_]+', '', clean_name).strip()
+                            clean_name = re.sub(r'[\s_]*\d+$', '', clean_name).strip()
+                            if clean_name in ["판", "차림표"]:
+                                clean_name = "메뉴판"
+                            if not clean_name or clean_name.isdigit():
+                                clean_name = "시그니처_요리"
+                            results[int(item["idx"])] = clean_name
+                    break
+            except Exception:
+                continue
+
+    if not results:
+        status_callback("⚠️ Vision AI 판독 일시 지연 -> 기존 스마트 파일명을 유지합니다.")
+        return image_paths
+
+    new_paths = []
+    target_dir = os.path.dirname(image_paths[0])
+    cat_counts = {}
+
+    for i, old_path in enumerate(image_paths, 1):
+        if not os.path.exists(old_path):
+            continue
+        cat_name = results.get(i)
+        if not cat_name:
+            base_no_ext = os.path.splitext(os.path.basename(old_path))[0]
+            if not cat_name.startswith("메뉴판"):
+                cat_name = re.sub(r'^(?:음식|사진|image|img|요리)[\s_]*', '', cat_name).strip()
+                cat_name = re.sub(r'^메뉴[\s_]+', '', cat_name).strip()
+            cat_name = re.sub(r'[\s_]*\d+$', '', cat_name).strip()
+            if cat_name in ["판", "차림표"]:
+                cat_name = "메뉴판"
+            if not cat_name or cat_name.isdigit():
+                cat_name = "시그니처_요리"
+
+        cnt = cat_counts.get(cat_name, 0) + 1
+        cat_counts[cat_name] = cnt
+        suffix = f"_{cnt}" if cnt > 1 else ""
+
+        new_fname = f"{i:02d}_{cat_name}{suffix}.jpg"
+        new_fpath = os.path.join(target_dir, new_fname)
+
+        if old_path != new_fpath:
+            try:
+                if os.path.exists(new_fpath):
+                    os.remove(new_fpath)
+                os.rename(old_path, new_fpath)
+                new_paths.append(new_fpath)
+            except Exception:
+                new_paths.append(old_path)
+        else:
+            new_paths.append(old_path)
+
+    status_callback(f"🎉 [Vision AI 사진 판독 완료] 사진 {len(new_paths)}장의 실물 피사체를 100% 인식하여 고유 파일명으로 재지정했습니다!")
+    return new_paths
+
+
 def classify_photos_smart_and_ai(photo_items, store_name, location, menu_cands, status_callback=print):
     """
     블로그 사진 캡션과 문맥을 분석하여 각 사진에 최적화된 파일명 키워드 목록 반환
@@ -542,6 +695,14 @@ def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
         target_dir = os.path.join(DOWNLOADS_ROOT, f"{safe_loc}_{safe_store}")
         os.makedirs(target_dir, exist_ok=True)
         
+        # 다운로드 전 기존 잔여 파일 완전 정리 (오염된 파일 제거)
+        for old_f in os.listdir(target_dir):
+            if old_f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                try:
+                    os.remove(os.path.join(target_dir, old_f))
+                except Exception:
+                    pass
+
         status_callback(f"💾 블로그 사진 {len(photo_items)}장 분석 및 다운로드 시작 -> {target_dir}")
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -573,7 +734,8 @@ def crawl_store_and_photos_from_blog(blog_url, status_callback=print):
             except Exception as e:
                 print(f"이미지 저장 오류 ({fname}): {e}")
 
-        status_callback(f"🎉 블로그 실사 {len(saved_photos)}장 다운로드 및 스마트 파일명 지정 완료! (저장위치: {target_dir})")
+        status_callback(f"🎉 블로그 실사 {len(saved_photos)}장 다운로드 완료! Vision AI 정밀 판독을 진행합니다...")
+        saved_photos = classify_photos_with_vision(saved_photos, found_store, location_cand, known_menus=all_menus, status_callback=status_callback)
 
     features_cand = details.get("ai_summary", f"{location_cand}에서 높은 평점과 인기를 자랑하는 핫플레이스 찐맛집")
 
@@ -915,7 +1077,14 @@ def download_store_photos(store_name, location="", menu="", max_count=14, status
     if clean_menu in ["음식", "메뉴", "대표메뉴", "시그니처", "인기메뉴"]:
         clean_menu = "시그니처"
 
-    if not force_refresh:
+    if force_refresh:
+        for old_f in os.listdir(target_dir):
+            if old_f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                try:
+                    os.remove(os.path.join(target_dir, old_f))
+                except Exception:
+                    pass
+    else:
         existing_files = [
             os.path.join(target_dir, f)
             for f in sorted(os.listdir(target_dir))
@@ -1058,7 +1227,8 @@ def download_store_photos(store_name, location="", menu="", max_count=14, status
                     pass
 
             browser.close()
-            status_callback(f"✅ 총 {len(saved_paths)}장의 글자/워터마크 없는 100% 찐 실사 사진 준비 완료!")
+            status_callback(f"✅ 총 {len(saved_paths)}장의 무글자 찐 실사 사진 다운로드 완료! Vision AI로 각 사진을 정밀 분석합니다...")
+            saved_paths = classify_photos_with_vision(saved_paths, store_name, location, status_callback=status_callback)
     except Exception as e:
         status_callback(f"사진 수집 안내: {e}")
 
