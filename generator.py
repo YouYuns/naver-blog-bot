@@ -49,11 +49,23 @@ def parse_photo_info(filepath):
     clean_name = re.sub(r'^[0-9_\-\.\s\[\]\(\)]+', '', raw_name).strip()
     clean_name = re.sub(r'[_\-]+', ' ', clean_name).strip()
     
+    # 괄호 안 번호나 기호 제거: (1), [2], (3) 등
+    clean_name = re.sub(r'\s*[\(\[\{]\s*\d+\s*[\)\]\}]', '', clean_name).strip()
+
     # '음식 1', '메뉴 1' 등 불필요한 접두사 및 후행 번호 완전 정제 ('메뉴판'은 온전히 보존)
     if not clean_name.startswith("메뉴판"):
         clean_name = re.sub(r'^(?:음식|사진|요리)[\s_]*', '', clean_name).strip()
         clean_name = re.sub(r'^메뉴[\s_]+', '', clean_name).strip()
+    
+    # 구도/동작 접미사 앞에 붙은 숫자 정제: 예) '2한입', '2 한입'
+    clean_name = re.sub(r'(\d+)\s*(?:한입|한점|컷|장|개|번)?$', '', clean_name).strip()
+    # 단어 끝 남은 숫자 제거 (예: '주물럭 2', '주물럭2', '외관 1')
     clean_name = re.sub(r'[\s_]*\d+$', '', clean_name).strip()
+    # 한글/영어 단어 사이 남은 숫자 완전 정제 (예: '눈꽃살치주물럭2 한입' -> '눈꽃살치주물럭')
+    clean_name = re.sub(r'(?<=[가-힣a-zA-Z])\s*\d+\s*(?=[가-힣a-zA-Z]|$)', ' ', clean_name).strip()
+    # 촬영 구도어 분리 정제: '한입', '한점', '접사', '클로즈업'
+    clean_name = re.sub(r'\s*(?:한입|한점|접사|클로즈업|확대샷|근접샷)\s*$', '', clean_name).strip()
+
     if clean_name in ["판", "차림표"]:
         clean_name = "메뉴판"
     
@@ -556,13 +568,19 @@ def synthesize_dynamic_dish_block(step_num, clean_name, store_name, location, ma
     네이버 실시간 검색 리뷰 데이터와 다차원 조합 문법 엔진을 결합하여
     매번 100% 새롭고 독창적인 요리 서사 단락을 동적 합성 (하드코딩 0%, 상투적 클리셰 0%)
     """
+    # 숫자 및 불필요한 번호 찌꺼기 100% 원천 배제
+    clean_name = re.sub(r'[\s_]*\d+[\s_]*', ' ', clean_name).strip()
+    clean_name = re.sub(r'\s*(?:한입|한점|접사|클로즈업)\s*$', '', clean_name).strip()
+    if not clean_name or clean_name.isdigit():
+        clean_name = main_menu or "시그니처 요리"
+
     emojis = ["✨", "🍽️", "😋", "🥢", "💖", "🌿", "🥘", "🥟", "📸", "⭐", "👍", ""]
     hooks = [
         f"군침 도는 비주얼과 은은한 향미, {clean_name}",
         f"기대 이상으로 흡족했던 {clean_name}의 첫인상",
         f"한 입 베어 물자마자 반한 {clean_name}",
         f"테이블을 화려하게 채워준 {clean_name}",
-        f"놓칠 수 없는 시그니처의 품격! {clean_name}",
+        f"부드럽고 깊은 감칠맛의 {clean_name}",
         f"정갈한 담음새와 꽉 찬 실속, {clean_name}",
         f"보는 것만으로도 식욕을 돋워준 {clean_name}",
         f"소문난 인기 이유를 실감한 {clean_name}",
@@ -581,10 +599,10 @@ def synthesize_dynamic_dish_block(step_num, clean_name, store_name, location, ma
         f"깊고 진한 풍미가 돋보인 {clean_name}",
         f"촉촉하고 부드러운 식감의 {clean_name}",
         f"깔끔하고 개운한 뒷맛이 일품인 {clean_name}",
-        f"이곳에 오면 꼭 주문해야 할 {clean_name}",
+        f"이곳에 오면 꼭 맛보아야 할 {clean_name}",
         f"따끈한 온기와 함께 서빙된 {clean_name}",
         f"사진을 안 남길 수 없었던 {clean_name} 비주얼",
-        f"마지막 한 입까지 완벽했던 {clean_name}",
+        f"마지막 한 점까지 완벽했던 {clean_name}",
         f"남다른 손맛이 고스란히 전해진 {clean_name}",
         f"남녀노소 누구나 좋아할 만한 {clean_name}",
         f"은은한 감칠맛으로 여운을 남긴 {clean_name}"
@@ -609,7 +627,7 @@ def synthesize_dynamic_dish_block(step_num, clean_name, store_name, location, ma
             f"식사의 든든함과 풍성함을 한층 더 채워준 하이라이트, {clean_name} 모습입니다! 🍽️",
             f"테이블을 한층 더 화사하게 밝혀주며 등장한 매력적인 {clean_name} 자태예요! 😋",
             f"일행들과 함께 나누어 맛보기 위해 선택한 기대작, {clean_name} 컷입니다! 📸",
-            f"메인 요리들과의 환상적인 어우러짐을 자랑하며 등장한 {clean_name} 모습이에요! 💖",
+            f"테이블에 은은한 온기를 더해주며 세팅된 {clean_name} 컷이에요! 💖",
             f"연이어 상 위에 오르며 감탄사를 더해준 또 하나의 주인공, {clean_name} 비주얼이에요! 🥢",
             f"테이블에 활기를 더해주며 다음 코스로 즐긴 {clean_name} 모습이랍니다! 👍",
             f"서로 다른 매력으로 식사의 재미를 배가시켜 준 {clean_name} 사진이에요! 🥰",
@@ -1201,11 +1219,33 @@ def clean_json_text(text):
     return text.strip()
 
 
-def call_llm_api(provider, api_key, prompt, status_callback=print):
+def compress_image_base64(filepath, max_size=480, quality=70):
+    """실사 사진을 Gemini Vision 멀티모달 전송용 경량 고화질 JPEG base64로 압축"""
+    try:
+        from PIL import Image
+        import io
+        import base64
+        with Image.open(filepath) as img:
+            img = img.convert("RGB")
+            img.thumbnail((max_size, max_size))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality)
+            return base64.b64encode(buf.getvalue()).decode('utf-8')
+    except Exception:
+        try:
+            import base64
+            with open(filepath, 'rb') as f:
+                return base64.b64encode(f.read()).decode('utf-8')
+        except Exception:
+            return None
+
+
+def call_llm_api(provider, api_key, prompt, status_callback=print, multimodal_parts=None):
     """
-    Google Gemini (gemini-2.5-flash / gemini-1.5-flash / gemini-2.0-flash)
+    Google Gemini (gemini-flash-latest / gemini-3-flash-preview / gemini-2.5-flash / gemini-flash-lite-latest)
     OpenAI (gpt-4o-mini / gpt-4o)
     Anthropic Claude (claude-3-5-haiku) 지원
+    * Google Gemini의 경우 다운로드된 실사 이미지를 Vision AI(멀티모달)로 직접 전송하여 사진 속 피사체를 직접 보며 글을 작성합니다.
     """
     import json
     import urllib.request
@@ -1215,12 +1255,21 @@ def call_llm_api(provider, api_key, prompt, status_callback=print):
 
     # 1. Google Gemini
     if "gemini" in p_lower:
-        gemini_models = ["gemini-3-flash-preview", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
+        gemini_models = ["gemini-flash-latest", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-flash-lite-latest"]
         last_error = None
+        
+        # 멀티모달 사진 파트가 있으면 결합
+        if multimodal_parts:
+            parts_payload = list(multimodal_parts) + [{"text": prompt}]
+            mode_desc = "👁️ Vision AI 멀티모달(실물 사진 직접 판독)"
+        else:
+            parts_payload = [{"text": prompt}]
+            mode_desc = "🤖 실시간 고유 서사"
+
         for m_name in gemini_models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{m_name}:generateContent?key={api_key}"
             payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
+                "contents": [{"parts": parts_payload}],
                 "generationConfig": {
                     "temperature": 0.8,
                     "maxOutputTokens": 8192,
@@ -1228,16 +1277,16 @@ def call_llm_api(provider, api_key, prompt, status_callback=print):
                 }
             }
             try:
-                status_callback(f"🤖 Google Gemini ({m_name}) 실시간 고유 서사 생성 요청 중...")
+                status_callback(f"{mode_desc} Gemini ({m_name}) 실시간 창작 요청 중...")
                 req = urllib.request.Request(
                     url,
                     data=json.dumps(payload).encode('utf-8'),
                     headers={'Content-Type': 'application/json'}
                 )
-                with urllib.request.urlopen(req, timeout=45) as resp:
+                with urllib.request.urlopen(req, timeout=50) as resp:
                     data = json.loads(resp.read().decode('utf-8'))
                     raw_text = data['candidates'][0]['content']['parts'][0]['text']
-                    status_callback(f"✅ Gemini ({m_name}) 본문 100% 창작 완료!")
+                    status_callback(f"✅ Gemini ({m_name}) 사진 직접 판독 및 본문 100% 창작 완료!")
                     return raw_text
             except urllib.error.HTTPError as he:
                 err_body = he.read().decode('utf-8', errors='ignore')
@@ -1254,6 +1303,12 @@ def call_llm_api(provider, api_key, prompt, status_callback=print):
                 last_error = str(e)
                 status_callback(f"⚠️ Gemini 호출 예외: {e}")
                 break
+
+        # 멀티모달로 실패했을 경우 텍스트 프롬프트로 1회 안전 재시도
+        if multimodal_parts:
+            status_callback("ℹ️ 멀티모달 이미지 페이로드 조정 후 텍스트 서사 모드로 안전 재시도합니다...")
+            return call_llm_api(provider, api_key, prompt, status_callback=status_callback, multimodal_parts=None)
+
         status_callback(f"⚠️ Gemini 모델 호출 실패: {last_error}")
         return None
 
@@ -1396,13 +1451,42 @@ def generate_ai_post(api_key, api_provider, store_name, location, menu, features
             {"items": [], "category": "finish", "clean_name": "만족스러운 식사 마무리"}
         ]
 
-    # 사진 순서 프롬프트 가이드 생성
+    # 2. 사진 순서 가이드 및 멀티모달 Vision AI 이미지 블록 구성
     photo_guides = []
+    multimodal_parts = []
+    has_images = False
+
+    # Gemini 모델인 경우 실제 다운로드된 사진 이미지들을 Vision AI에 직접 전송
+    is_gemini = "gemini" in str(api_provider).lower()
+    if is_gemini and photo_paths:
+        multimodal_parts.append({
+            "text": "아래 첨부된 실제 사진들을 '직접 눈으로 보고' 사진에 실제로 담긴 비주얼, 색감, 식재료, 담음새, 플레이팅, 공간의 분위기를 생생하게 관찰하여 블로그 포스팅을 작성해주세요.\n"
+        })
+
     for b_i, b in enumerate(batches, 1):
         cat_kor = CATEGORY_KOR_NAMES.get(b["category"], "요리/공간")
+        # 파일명에서 숫자/임의 라벨을 온전히 털어낸 깨끗한 이름
+        display_cand = re.sub(r'[\s_]*\d+[\s_]*', ' ', b["clean_name"]).strip()
+        display_cand = re.sub(r'\s*(?:한입|한점|접사|클로즈업)\s*$', '', display_cand).strip() or menu
+        b["clean_name"] = display_cand
+
         fnames = [os.path.basename(it["path"]) for it in b["items"]] if b["items"] else []
         fnames_str = f" (사진 파일: {', '.join(fnames)})" if fnames else ""
-        photo_guides.append(f"{b_i}. 사진 주제: [{cat_kor}] '{b['clean_name']}'{fnames_str}")
+        photo_guides.append(f"{b_i}. 사진 주제: [{cat_kor}] '{display_cand}'{fnames_str}")
+
+        if is_gemini and b["items"]:
+            main_path = b["items"][0].get("path")
+            if main_path and os.path.exists(main_path):
+                b64_data = compress_image_base64(main_path, max_size=480, quality=70)
+                if b64_data:
+                    multimodal_parts.append({
+                        "text": f"\n[단락 {b_i}번 첨부 사진 - {cat_kor} ('{display_cand}')]\n"
+                    })
+                    multimodal_parts.append({
+                        "inlineData": {"mimeType": "image/jpeg", "data": b64_data}
+                    })
+                    has_images = True
+
     photo_guides_text = "\n".join(photo_guides)
 
     # 매장 정보 및 네이버 실시간 리뷰 요약
@@ -1419,13 +1503,36 @@ def generate_ai_post(api_key, api_provider, store_name, location, menu, features
             rev_lines.append(f"- 분위기 후기: \"{v.strip()}\"")
     live_rev_text = "\n".join(rev_lines) if rev_lines else "- 네이버 방문객 평점 및 만족도가 아주 높은 인기 매장"
 
+    if has_images:
+        vision_instructions = """[👁️ Gemini Vision AI 실물 사진 직접 판독 필수 규칙]
+1. 첨부된 각 사진을 직접 눈으로 보고, 실제 사진에 보이는 생생한 디테일을 사실적으로 묘사하세요:
+   - 음식/요리 사진: 실제 보이는 고기 마블링과 두께, 윤기, 튀김옷의 바삭함, 소스 빛깔, 플레이팅, 그릇의 질감, 모락모락 피어오르는 온기
+   - 매장 외관/내부: 실제 간판 글씨, 조명 무드, 창가 뷰, 테이블 좌석 배치, 감성적인 매장 분위기
+   - 메뉴판/안내판: 실제 사진에 적힌 대표 메뉴명, 가격대, 주차나 이용 꿀팁 정보
+2. 파일명 및 인위적 숫자/라벨 절대 금지:
+   - 파일명에 포함되었던 숫자('2', '1' 등)나 임의 라벨('한입', '사진1')을 본문이나 소제목에 절대로 그대로 쓰지 마세요.
+   - 예: '눈꽃살치주물럭2 한입' (X) -> '화로 위에서 선홍빛 마블링을 뽐내며 노릇하게 익어가는 눈꽃살치주물럭' (O)
+3. 로봇 말투 및 상투적 클리셰 절대 금지:
+   - '200% 만족', '놓칠 수 없는 시그니처의 품격', '환상적인 시너지', '삼박자', '~에 대해 알아보겠습니다' 같은 AI 번역투나 진부한 클리셰는 절대 사용하지 마세요.
+   - 실제 20~30대 한국인 인플루언서의 자연스럽고 다정한 구어체 ('~했어요!', '~더라고요!', '~였답니다!', '~느껴졌어요!')로 솔직하고 유쾌하게 풀어내세요.
+4. 네이버 검색 상위 노출 최적화 (SEO):
+   - 제목과 본문에 '{location} {store_name}', '{menu}' 등 핵심 검색어를 자연스러운 문맥으로 배치하여 네이버 스마트블록/DIA+ 알고리즘에 최적화하세요."""
+    else:
+        vision_instructions = """[작성 필수 규칙]
+1. 파일명 및 인위적 숫자/라벨 절대 금지:
+   - 파일명에 포함되었던 숫자('2', '1' 등)나 임의 라벨('한입', '사진1')을 본문이나 소제목에 절대로 그대로 쓰지 마세요.
+2. 로봇 말투 및 상투적 클리셰 절대 금지:
+   - '200% 만족', '놓칠 수 없는 시그니처의 품격', '환상적인 시너지', '삼박자' 등 상투적 표현 금지.
+   - 실제 20~30대 한국인 인플루언서의 자연스럽고 다정한 구어체 ('~했어요!', '~더라고요!', '~였답니다!')로 서술하세요.
+3. 네이버 검색 상위 노출 최적화 (SEO):
+   - 제목과 본문에 '{location} {store_name}', '{menu}' 등 핵심 검색어를 자연스럽게 녹여내세요."""
+
     prompt = f"""당신은 네이버 상위 1% 맛집 전문 파워블로거입니다.
 지정된 작가 페르소나 스타일로 실제 방문하여 100% 직접 경험한 것처럼 생생하고 흡입력 있는 네이버 블로그 글을 작성해주세요.
 
 [작가 페르소나]
 - 스타일: {p_name} ({p_desc})
 - 어조: 실제 20~30대 한국인 인플루언서가 쓰는 친근하고 자연스러운 구어체 ('~했어요!', '~더라고요!', '~였답니다!', '~느껴졌어요!')
-- 절대 금지: 로봇/AI 특유의 번역투 ('~에 대해 알아보겠습니다', '~를 추천드립니다', '~의 모습입니다' 반복 금지), 상투적 클리셰 ('200% 만족', '300%', '대만족', '올킬', '삼박자' 절대 사용 금지).
 
 [방문 식당 정보]
 - 식당명: {store_name}
@@ -1442,12 +1549,14 @@ def generate_ai_post(api_key, api_provider, store_name, location, menu, features
 본문에는 아래 순서대로 사진이 삽입됩니다. 각 번호(batch_index 1부터 {len(batches)}까지)에 맞춰 사진을 직접 보며 설명하듯 생생하게 작성해야 합니다:
 {photo_guides_text}
 
-[작성 필수 규칙]
+{vision_instructions}
+
+[상세 포맷 규칙]
 1. 제목(title): 네이버 스마트블록/DIA+ 검색 랭킹에 최적화되도록 지역명({location}), 상호명({store_name}), 대표메뉴 키워드를 자연스러운 문맥으로 배치 (호기심 유발, 솔직 후기형).
 2. 도입부(intro): 매장에 방문하게 된 계기, 날씨나 모임 상황, 찾아가는 길의 설렘을 담아 2~3단락으로 작성.
 3. 사진별 스토리(photo_stories):
    - 위 사진 순서의 각 번호(batch_index 1부터 {len(batches)}까지)와 1:1로 매칭되는 소제목(header)과 본문(content)을 작성.
-   - 소제목(header): 인위적인 번호('1.', '2.', '1등' 등) 절대 금지! 해당 사진의 매력을 담은 감각적인 소제목 (이모지 1개 포함).
+   - 소제목(header): 인위적인 번호('1.', '2.', '1등' 등) 절대 금지! 해당 사진의 실제 매력을 담은 감각적인 소제목 (이모지 1개 포함).
    - 본문(content): 해당 사진의 모습(외관이면 감성적인 외관 분위기, 요리면 비주얼/색감/식감/육즙/온도감/간의 조화)을 생생한 2~3단락으로 작성. 단락 구분은 \n\n 으로 줄바꿈.
 4. 마무리 총평(outro):
    - 전체 식사에 대한 솔직한 총평, 재방문 의사, 누구와 오면 좋을지(데이트/가족/친구/회식), 주차나 웨이팅 꿀팁을 2~3단락으로 작성.
@@ -1471,8 +1580,18 @@ def generate_ai_post(api_key, api_provider, store_name, location, menu, features
 }}
 """
 
-    status_callback(f"🤖 [100% 생성형 AI 엔진] {api_provider.upper()} 모델에 {len(batches)}개 사진 맞춤 본문 실시간 집필 요청 중...")
-    raw_ai_resp = call_llm_api(api_provider, api_key.strip(), prompt, status_callback=status_callback)
+    if has_images:
+        status_callback(f"👁️ [Gemini Vision AI 직접 분석] 실물 사진 {len(multimodal_parts)//2}장의 실제 이미지를 직접 보며 100% 맞춤 창작 중입니다...")
+    else:
+        status_callback(f"🤖 [100% 생성형 AI 엔진] {api_provider.upper()} 모델에 {len(batches)}개 사진 맞춤 본문 실시간 집필 요청 중...")
+    
+    raw_ai_resp = call_llm_api(
+        api_provider, 
+        api_key.strip(), 
+        prompt, 
+        status_callback=status_callback,
+        multimodal_parts=multimodal_parts if has_images else None
+    )
 
     if not raw_ai_resp:
         status_callback("⚠️ AI 응답 없음 -> 고품질 템플릿 엔진으로 안전하게 자동 전환합니다.")
@@ -1548,13 +1667,16 @@ def generate_ai_post(api_key, api_provider, store_name, location, menu, features
 
     # 사진별 단락 (AI가 직접 쓴 소제목과 본문 100% 매칭)
     for b_idx, batch in enumerate(batches, 1):
+        clean_name_final = re.sub(r'[\s_]*\d+[\s_]*', ' ', batch['clean_name']).strip()
+        clean_name_final = re.sub(r'\s*(?:한입|한점|접사|클로즈업)\s*$', '', clean_name_final).strip() or menu
+
         story = story_map.get(b_idx)
         if story:
-            sec_h = sanitize_header(story.get("header", f"✨ {batch['clean_name']} 모습"))
+            sec_h = sanitize_header(story.get("header", f"✨ {clean_name_final} 모습"))
             sec_c = clean_markdown_artifacts(story.get("content", ""))
         else:
-            sec_h = f"✨ {batch['clean_name']}"
-            sec_c = f"{store_name}의 매력적인 {batch['clean_name']} 모습이에요."
+            sec_h = f"✨ {clean_name_final}"
+            sec_c = f"{store_name}의 매력적인 {clean_name_final} 모습이에요."
 
         # 스티커 적재적소 삽입
         if include_stickers and b_idx in (2, 5, 8):
@@ -1567,11 +1689,11 @@ def generate_ai_post(api_key, api_provider, store_name, location, menu, features
             "content": sec_c
         })
 
-        # 사진 이미지 첨부
+        # 사진 이미지 첨부 (파일명 번호 찌꺼기 없는 깔끔한 캡션)
         if batch["items"]:
             b_paths = [item["path"] for item in batch["items"]]
             pair_suffix = " (가로 나란히)" if len(b_paths) > 1 else ""
-            caption = f"{batch['clean_name']}{pair_suffix}"
+            caption = f"{clean_name_final}{pair_suffix}"
             sections.append({
                 "type": "image",
                 "paths": b_paths,

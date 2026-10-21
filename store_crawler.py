@@ -420,6 +420,7 @@ def classify_photos_with_vision(image_paths, store_name, location, known_menus=N
         cat_name = results.get(i)
         if not cat_name:
             base_no_ext = os.path.splitext(os.path.basename(old_path))[0]
+            cat_name = base_no_ext
             if not cat_name.startswith("메뉴판"):
                 cat_name = re.sub(r'^(?:음식|사진|image|img|요리)[\s_]*', '', cat_name).strip()
                 cat_name = re.sub(r'^메뉴[\s_]+', '', cat_name).strip()

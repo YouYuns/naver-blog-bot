@@ -209,6 +209,35 @@
           "dish_부산수제빵_8"
         ]
       }
+    },
+    {
+      "timestamp": "2026-10-21 09:47:45",
+      "store": "블루쇼파스타 연남",
+      "persona_id": "honest",
+      "title_id": "title_honest_18",
+      "intro_id": "intro_honest_5",
+      "outro_id": "outro_honest_1",
+      "photo_blocks": {
+        "cat_exterior": [
+          "cat_exterior_5",
+          "cat_exterior_2",
+          "cat_exterior_7"
+        ],
+        "cat_menu": [
+          "cat_menu_0"
+        ],
+        "cat_interior": [
+          "cat_interior_0",
+          "cat_interior_2",
+          "cat_interior_3"
+        ],
+        "dish": [
+          "dish_블루쇼파스타_8",
+          "dish_바질크림파스타_9",
+          "dish_단호박크림뇨끼_10",
+          "dish_바질크림파스타단호박크림뇨끼_11"
+        ]
+      }
     }
   ]
 }
