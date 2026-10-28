@@ -238,6 +238,150 @@
           "dish_바질크림파스타단호박크림뇨끼_11"
         ]
       }
+    },
+    {
+      "timestamp": "2026-10-27 13:55:00",
+      "store": "어밤부",
+      "persona_id": "healing",
+      "title_id": "title_healing_1",
+      "intro_id": "intro_healing_6",
+      "outro_id": "outro_healing_2",
+      "photo_blocks": {
+        "cat_interior": [
+          "cat_interior_0",
+          "cat_interior_3",
+          "cat_interior_2",
+          "cat_interior_4"
+        ],
+        "cat_exterior": [
+          "cat_exterior_0"
+        ],
+        "dish": [
+          "dish_대표요리_4",
+          "dish_대표요리_9",
+          "dish_대표요리_10",
+          "dish_대표요리_12"
+        ],
+        "cat_menu": [
+          "cat_menu_2"
+        ],
+        "cat_sides": [
+          "cat_sides_2",
+          "cat_sides_0"
+        ],
+        "cat_finish": [
+          "cat_finish_2"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-10-27 14:35:57",
+      "store": "양키스그릴",
+      "persona_id": "worker",
+      "title_id": "title_worker_14",
+      "intro_id": "intro_worker_3",
+      "outro_id": "outro_worker_0",
+      "photo_blocks": {
+        "cat_exterior": [
+          "cat_exterior_2"
+        ],
+        "cat_interior": [
+          "cat_interior_0",
+          "cat_interior_4"
+        ],
+        "cat_menu": [
+          "cat_menu_0"
+        ],
+        "cat_sides": [
+          "cat_sides_1",
+          "cat_sides_3",
+          "cat_sides_2",
+          "cat_sides_0"
+        ],
+        "dish": [
+          "dish_제로콜라_5",
+          "dish_파스타_7",
+          "dish_안심스테이크_8",
+          "dish_안심스테이크_10",
+          "dish_파스타_11",
+          "dish_식전빵_13",
+          "dish_안심스테이크_15"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-10-27 15:43:12",
+      "store": "효횟집",
+      "persona_id": "local",
+      "title_id": "title_local_15",
+      "intro_id": "intro_local_5",
+      "outro_id": "outro_local_4",
+      "photo_blocks": {
+        "dish": [
+          "dish_모듬회_1",
+          "dish_양념게장_7",
+          "dish_고구마맛탕_9",
+          "dish_계란찜_10",
+          "dish_주류_11",
+          "dish_모듬회_12",
+          "dish_주류_13",
+          "dish_모듬회_14",
+          "dish_물회_15",
+          "dish_콘치즈_16",
+          "dish_모듬튀김_17",
+          "dish_매운탕_19"
+        ],
+        "cat_exterior": [
+          "cat_exterior_1",
+          "cat_exterior_4"
+        ],
+        "cat_menu": [
+          "cat_menu_1",
+          "cat_menu_3",
+          "cat_menu_2"
+        ],
+        "cat_interior": [
+          "cat_interior_2"
+        ],
+        "cat_sides": [
+          "cat_sides_0"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-10-28 13:14:41",
+      "store": "올웨이즈어거스트로스터스",
+      "persona_id": "trendy",
+      "title_id": "title_trendy_5",
+      "intro_id": "intro_trendy_2",
+      "outro_id": "outro_trendy_3",
+      "photo_blocks": {
+        "cat_exterior": [
+          "cat_exterior_4"
+        ],
+        "cat_interior": [
+          "cat_interior_1"
+        ],
+        "cat_menu": [
+          "cat_menu_3"
+        ],
+        "cat_sides": [
+          "cat_sides_3"
+        ],
+        "dish": [
+          "dish_대표요리_5",
+          "dish_대표요리_7"
+        ],
+        "cat_detail": [
+          "cat_detail_0"
+        ],
+        "cat_combo": [
+          "cat_combo_1"
+        ],
+        "cat_finish": [
+          "cat_finish_0"
+        ]
+      }
     }
   ]
 }

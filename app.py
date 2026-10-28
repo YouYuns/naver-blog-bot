@@ -281,23 +281,12 @@ class NaverBlogApp(tk.Tk):
         )
         lbl_hint.pack(anchor="w", pady=(2, 0))
 
-        # --- 섹션 4: 블로그 추가 서식 옵션 ---
-        option_group = tk.LabelFrame(main_frame, text=" 4. 블로그 서식 & 추가 요소 (최상단 배치 & 가운데정렬) ", font=("Malgun Gothic", 10, "bold"), bg="#F4F6F9", padx=10, pady=6)
-        option_group.pack(fill="x", pady=4)
-
-        opt_bar = tk.Frame(option_group, bg="#F4F6F9")
-        opt_bar.pack(fill="x")
-
+        # 블로그 서식(스티커, 지도)은 UI 설정 없이 알아서 100% 자동 적용
         self.var_sticker = tk.BooleanVar(value=True)
-        cb_sticker = ttk.Checkbutton(opt_bar, text="🎀 네이버 스티커 자동 삽입", variable=self.var_sticker)
-        cb_sticker.pack(side="left", padx=5)
-
         self.var_map = tk.BooleanVar(value=True)
-        cb_map = ttk.Checkbutton(opt_bar, text="🗺️ 네이버 지도(장소) 본문 최상단 첨부", variable=self.var_map)
-        cb_map.pack(side="left", padx=20)
 
-        # --- 섹션 5: 생성 방식 ---
-        mode_group = tk.LabelFrame(main_frame, text=" 5. 본문 생성 방식 (100% 생성형 AI 실시간 창작 vs 고품질 무료 템플릿) ", font=("Malgun Gothic", 10, "bold"), bg="#F4F6F9", padx=10, pady=6)
+        # --- 섹션 4: 생성 방식 ---
+        mode_group = tk.LabelFrame(main_frame, text=" 4. 본문 생성 방식 (100% 생성형 AI 실시간 창작 vs 고품질 무료 템플릿) ", font=("Malgun Gothic", 10, "bold"), bg="#F4F6F9", padx=10, pady=6)
         mode_group.pack(fill="x", pady=4)
 
         saved_cfg = load_api_config()
@@ -901,6 +890,12 @@ class NaverBlogApp(tk.Tk):
                     persona=active_persona,
                     status_callback=self.log
                 )
+                if not data:
+                    self.log("⚠️ AI 서버 응답 지연/키 형식 문제로 인해 멈춤을 방지하고자 [고품질 SEO 템플릿 엔진]으로 즉시 자동 전환하여 글 작성을 이어갑니다!")
+                    data = generator.generate_template_post(
+                        store, location, menu, features, photo_count, include_stickers, include_map, 
+                        store_info=self.store_info, photo_paths=self.photo_paths, persona=active_persona
+                    )
         else:
             self.log("⚡ 고품질 SEO 템플릿 엔진으로 풍성한 장문 포스팅을 구성합니다...")
             data = generator.generate_template_post(

@@ -1255,7 +1255,7 @@ def call_llm_api(provider, api_key, prompt, status_callback=print, multimodal_pa
 
     # 1. Google Gemini
     if "gemini" in p_lower:
-        gemini_models = ["gemini-flash-latest", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-flash-lite-latest"]
+        gemini_models = ["gemini-flash-latest", "gemini-2.5-flash"]
         last_error = None
         
         # 멀티모달 사진 파트가 있으면 결합
@@ -1283,7 +1283,7 @@ def call_llm_api(provider, api_key, prompt, status_callback=print, multimodal_pa
                     data=json.dumps(payload).encode('utf-8'),
                     headers={'Content-Type': 'application/json'}
                 )
-                with urllib.request.urlopen(req, timeout=50) as resp:
+                with urllib.request.urlopen(req, timeout=12) as resp:
                     data = json.loads(resp.read().decode('utf-8'))
                     raw_text = data['candidates'][0]['content']['parts'][0]['text']
                     status_callback(f"✅ Gemini ({m_name}) 사진 직접 판독 및 본문 100% 창작 완료!")
@@ -1552,7 +1552,7 @@ def generate_ai_post(api_key, api_provider, store_name, location, menu, features
 {vision_instructions}
 
 [상세 포맷 규칙]
-1. 제목(title): 네이버 스마트블록/DIA+ 검색 랭킹에 최적화되도록 지역명({location}), 상호명({store_name}), 대표메뉴 키워드를 자연스러운 문맥으로 배치 (호기심 유발, 솔직 후기형).
+1. 제목(title): 네이버 스마트블록 검색 1위 공식 필수 적용! 제목 맨 앞에 반드시 '[{location} {store_name}]' 또는 '{location} {store_name}'을 가장 먼저 배치하고, 이어서 대표메뉴 '{menu}'와 검색 유입 롱테일 키워드('내돈내산', '솔직후기', '웨이팅 꿀팁', '주차 정보', '점심 추천' 중 1~2개)를 결합하세요. '따뜻한...', '골목길 끝에서...' 같은 감성 수식어로 제목을 시작하는 것을 엄격히 금지합니다.
 2. 도입부(intro): 매장에 방문하게 된 계기, 날씨나 모임 상황, 찾아가는 길의 설렘을 담아 2~3단락으로 작성.
 3. 사진별 스토리(photo_stories):
    - 위 사진 순서의 각 번호(batch_index 1부터 {len(batches)}까지)와 1:1로 매칭되는 소제목(header)과 본문(content)을 작성.

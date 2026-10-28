@@ -14,7 +14,7 @@ import base64
 import urllib.parse
 import urllib.request
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance
 from playwright.sync_api import sync_playwright
 
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
@@ -27,6 +27,50 @@ CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 DOWNLOADS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "downloaded_photos"))
 
 _OCR_ENGINE = None
+
+def sanitize_and_save_image(img_data, output_path, crop_ratio=0.018):
+    """
+    네이버 유사 이미지 / 저작권 중복 판독 방지 전용 고유 이미지 세탁기
+    1. EXIF 메타데이터(카메라, 촬영위치, 원작성자 정보 등) 100% 완전 파기
+    2. 상하좌우 테두리 미세 크롭 (1.5~2%) -> 원본 구도/내용은 온전히 보존하되 픽셀 해시값 완전 변경
+    3. 미세한 대비 2% 조정 (육안 구분 불가, 알고리즘상 고유 이미지화)
+    4. 새로운 고화질 JPEG(quality=95)로 재압축 저장
+    """
+    try:
+        if isinstance(img_data, (bytes, bytearray)):
+            img = Image.open(io.BytesIO(img_data)).convert("RGB")
+        elif isinstance(img_data, str) and os.path.exists(img_data):
+            img = Image.open(img_data).convert("RGB")
+        else:
+            return False
+
+        w, h = img.size
+        # 상하좌우 1.8% 미세 크롭 (최소 3px)
+        crop_x = max(3, int(w * crop_ratio))
+        crop_y = max(3, int(h * crop_ratio))
+        
+        if w > crop_x * 2 and h > crop_y * 2:
+            img = img.crop((crop_x, crop_y, w - crop_x, h - crop_y))
+
+        # 미세 대비 2% 향상 (생생한 느낌 + 픽셀값 변조로 유사 판정 우회)
+        try:
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.02)
+        except Exception:
+            pass
+
+        # EXIF 없이 깨끗한 새 파일로 저장
+        img.save(output_path, "JPEG", quality=95, optimize=True)
+        return True
+    except Exception as e:
+        try:
+            if isinstance(img_data, (bytes, bytearray)):
+                with open(output_path, "wb") as f:
+                    f.write(img_data)
+                return True
+        except Exception:
+            pass
+        return False
 
 def get_ocr_engine():
     global _OCR_ENGINE
@@ -737,9 +781,8 @@ def crawl_store_and_photos_from_blog(blog_url, status_callback=print, on_store_f
                     img_data = resp.read()
                 if len(img_data) < 10000:
                     continue
-                with open(fpath, "wb") as f:
-                    f.write(img_data)
-                saved_photos.append(fpath)
+                if sanitize_and_save_image(img_data, fpath):
+                    saved_photos.append(fpath)
             except Exception as e:
                 print(f"이미지 저장 오류 ({fname}): {e}")
 
@@ -1193,10 +1236,8 @@ def download_store_photos(store_name, location="", menu="", max_count=14, status
                                 else:
                                     fname = os.path.join(target_dir, f"{file_idx:02d}_{cat_name}_{cat_count + 1}.jpg")
 
-                                with open(fname, 'wb') as f:
-                                    f.write(img_data)
-
-                                saved_paths.append(fname)
+                                if sanitize_and_save_image(img_data, fname):
+                                    saved_paths.append(fname)
                                 cat_count += 1
                                 file_idx += 1
                                 if cat_count >= req_count or len(saved_paths) >= max_count:
@@ -1229,9 +1270,8 @@ def download_store_photos(store_name, location="", menu="", max_count=14, status
                                     continue
 
                                 fname = os.path.join(target_dir, f"{file_idx:02d}_{clean_menu}_{extra_c + 1}.jpg")
-                                with open(fname, 'wb') as f:
-                                    f.write(img_data)
-                                saved_paths.append(fname)
+                                if sanitize_and_save_image(img_data, fname):
+                                    saved_paths.append(fname)
                                 extra_c += 1
                                 file_idx += 1
                                 if len(saved_paths) >= max_count:
