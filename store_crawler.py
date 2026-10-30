@@ -177,7 +177,49 @@ def fetch_store_details(store_name, location=""):
 
             # 실시간 블로그 및 방문자 찐리뷰 수집을 위한 전체 본문 텍스트
             all_page_text = page.inner_text("body")
+            menu_boxes_text = []
+            for _bi in range(min(14, boxes.count())):
+                try:
+                    menu_boxes_text.append(boxes.nth(_bi).inner_text().strip())
+                except Exception:
+                    pass
             browser.close()
+
+            # 실제 메뉴 목록 파싱 (메뉴명 + 가격 쌍) -> 없으면 사진 태그(음식·음료)로 보완
+            _menus = []
+            for _bt in menu_boxes_text:
+                _ls = [x.strip() for x in _bt.split("\n") if x.strip()]
+                for _i, _l in enumerate(_ls):
+                    if _l == "메뉴":
+                        _j = _i + 1
+                        while _j < len(_ls) - 1 and len(_menus) < 8:
+                            _nm, _pr = _ls[_j], _ls[_j + 1]
+                            if re.search(r'\d[\d,]*\s*원', _pr) and not re.search(r'\d[\d,]*\s*원', _nm) and 1 < len(_nm) < 30:
+                                _nm = re.sub(r'\(.*?\)', '', _nm).strip()
+                                if _nm and _nm not in _menus:
+                                    _menus.append(_nm)
+                                _j += 2
+                            else:
+                                _j += 1
+                            if _j < len(_ls) and _ls[_j] in ["더보기", "접기"]:
+                                break
+                if len(_menus) >= 3:
+                    break
+            if not _menus:
+                for _bt in menu_boxes_text:
+                    _ls = [x.strip() for x in _bt.split("\n") if x.strip()]
+                    for _i, _l in enumerate(_ls):
+                        if _l in ["음식·음료", "음식", "메뉴판"] and _i + 1 < len(_ls):
+                            for _x in _ls[_i + 1:_i + 8]:
+                                if _x in ["내부", "외부", "메뉴판", "더보기", "음식·음료", "음식"]:
+                                    break
+                                if 1 < len(_x) < 20 and _x not in _menus:
+                                    _menus.append(_x)
+                            break
+                    if _menus:
+                        break
+            if _menus:
+                info["popular_menus"] = _menus[:6]
 
             if matched_text:
                 lines = [l.strip() for l in matched_text.split("\n") if l.strip()]
@@ -268,6 +310,25 @@ def fetch_store_details(store_name, location=""):
 
     return info
 
+
+
+def build_store_features(details, location, category=""):
+    """AI 요약 -> 실제 후기 문장 -> 별점/리뷰 정보 순으로 실제 데이터 기반 특징 생성"""
+    if details.get("ai_summary"):
+        return details["ai_summary"]
+    lr = details.get("live_reviews", {}) or {}
+    for key in ("vibe", "taste"):
+        for s in lr.get(key, []):
+            s = s.strip()
+            if 15 <= len(s) <= 70:
+                return s
+    parts = []
+    if details.get("star_rating"):
+        parts.append(f"별점 {details['star_rating']}")
+    if details.get("review_count"):
+        parts.append(f"리뷰 {details['review_count']}")
+    base = f"{location}에서 방문자 평이 좋은 {category or '인기'} 맛집"
+    return f"{base} ({', '.join(parts)})" if parts else base
 
 def extract_naver_blog_params(url):
     m = re.search(r'blog\.naver\.com/(?:m/)?([a-zA-Z0-9_-]+)/(\d+)', url)
@@ -731,7 +792,7 @@ def crawl_store_and_photos_from_blog(blog_url, status_callback=print, on_store_f
         all_menus = ["대표요리"]
 
     menu_str = ", ".join(all_menus[:3])
-    features_cand = details.get("ai_summary") or f"{location_cand}에서 높은 평점과 인기를 자랑하는 핫플레이스 찐맛집"
+    features_cand = build_store_features(details, location_cand)
     
     # 상호명, 위치, 대표메뉴 식별 완료 즉시 콜백 호출 (사용자 UI에 1~2초 만에 즉시 반영)
     if on_store_found:
@@ -976,10 +1037,7 @@ def resolve_store_from_address_or_url(input_query, status_callback=print, on_sto
 
     # 5. 특징 / 꿀팁
     features_cand = ""
-    if details.get("ai_summary"):
-        features_cand = details["ai_summary"]
-    else:
-        features_cand = f"현지인과 여행객이 함께 찾는 {location_cand}의 핫플레이스 찐맛집"
+    features_cand = build_store_features(details, location_cand, found_category)
 
     if on_store_found:
         try:
